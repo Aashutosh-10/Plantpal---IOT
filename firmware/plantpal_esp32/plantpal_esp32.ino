@@ -1,5 +1,5 @@
-#include "config.h"
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -8,6 +8,14 @@
 #include <DHT.h>
 #include <DFRobotDFPlayerMini.h>
 
+// =====================================================
+// WIFI & SERVER CREDENTIALS
+// =====================================================
+const char* WIFI_SSID     = "YOUR_HOTSPOT_NAME";     // <--- Your exact Wi-Fi/Hotspot name
+const char* WIFI_PASSWORD = "YOUR_HOTSPOT_PASSWORD"; // <--- Your exact password
+
+// Your live Render endpoint
+const char* SERVER_URL    = "https://plantpal-iot.onrender.com/api/sensor-data";
 
 // =====================================================
 // PIN ASSIGNMENTS
@@ -23,7 +31,7 @@
 #define DF_TX         17
 
 // =====================================================
-// HARDWARE INSTANCES
+// PERIPHERALS
 // =====================================================
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
@@ -40,9 +48,6 @@ bool dfPlayerOK = false;
 bool bh1750OK   = false;
 bool oledOK     = false;
 
-// =====================================================
-// SENSOR STATES & CALIBRATION
-// =====================================================
 #define SOIL_DRY_VALUE 3000
 #define SOIL_WET_VALUE 1200
 
@@ -58,15 +63,11 @@ unsigned long lastOLEDUpdate = 0;
 const unsigned long CLOUD_INTERVAL = 5000;
 const unsigned long OLED_INTERVAL  = 1000;
 
-// =====================================================
-// UTILITIES
-// =====================================================
 void readSensors() {
   soilValue   = analogRead(SOIL_PIN);
   soilPercent = map(soilValue, SOIL_DRY_VALUE, SOIL_WET_VALUE, 0, 100);
   soilPercent = constrain(soilPercent, 0, 100);
-
-  touchValue = digitalRead(TOUCH_PIN);
+  touchValue  = digitalRead(TOUCH_PIN);
 
   if (bh1750OK) {
     lux = lightMeter.readLightLevel();
@@ -129,38 +130,42 @@ void updateOLED() {
 
 void sendTelemetryToCloud() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[HTTP] WiFi not connected. Skipping upload.");
+    Serial.println("[WIFI] Not connected. Reconnecting...");
+    WiFi.reconnect();
     return;
   }
 
+  // Use WiFiClientSecure to handle HTTPS encryption cleanly
+  WiFiClientSecure client;
+  client.setInsecure(); // Allows HTTPS without manually embedding root certs
+
   HTTPClient http;
-  http.begin(SERVER_URL);
-  http.addHeader("Content-Type", "application/json");
+  if (http.begin(client, SERVER_URL)) {
+    http.addHeader("Content-Type", "application/json");
 
-  // Construct JSON body
-  String json = "{";
-  json += "\"soilRaw\":" + String(soilValue) + ",";
-  json += "\"soilPercent\":" + String(soilPercent) + ",";
-  json += "\"lux\":" + String(isnan(lux) ? 0.0 : lux, 1) + ",";
-  json += "\"temperature\":" + String(isnan(temperature) ? 0.0 : temperature, 1) + ",";
-  json += "\"humidity\":" + String(isnan(humidity) ? 0.0 : humidity, 1) + ",";
-  json += "\"touch\":" + String(touchValue == HIGH ? "true" : "false") + ",";
-  json += "\"audio\":" + String(dfPlayerOK ? "true" : "false") + ",";
-  json += "\"status\":\"" + getPlantStatus() + "\"";
-  json += "}";
+    String json = "{";
+    json += "\"soilRaw\":" + String(soilValue) + ",";
+    json += "\"soilPercent\":" + String(soilPercent) + ",";
+    json += "\"lux\":" + String(isnan(lux) ? 0.0 : lux, 1) + ",";
+    json += "\"temperature\":" + String(isnan(temperature) ? 0.0 : temperature, 1) + ",";
+    json += "\"humidity\":" + String(isnan(humidity) ? 0.0 : humidity, 1) + ",";
+    json += "\"touch\":" + String(touchValue == HIGH ? "true" : "false") + ",";
+    json += "\"audio\":" + String(dfPlayerOK ? "true" : "false") + ",";
+    json += "\"status\":\"" + getPlantStatus() + "\"";
+    json += "}";
 
-  int httpResponseCode = http.POST(json);
-  if (httpResponseCode > 0) {
-    Serial.printf("[HTTP] POST Result: %d\n", httpResponseCode);
+    int httpCode = http.POST(json);
+    if (httpCode > 0) {
+      Serial.printf("[HTTP] POST Success! Response Code: %d\n", httpCode);
+    } else {
+      Serial.printf("[HTTP] POST Failed. Error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
   } else {
-    Serial.printf("[HTTP] POST Failed: %s\n", http.errorToString(httpResponseCode).c_str());
+    Serial.println("[HTTP] Unable to connect to Render host");
   }
-  http.end();
 }
 
-// =====================================================
-// SETUP
-// =====================================================
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -171,7 +176,6 @@ void setup() {
 
   Wire.begin(SDA_PIN, SCL_PIN);
 
-  // OLED Init
   if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     oledOK = true;
     display.clearDisplay();
@@ -182,28 +186,24 @@ void setup() {
     display.display();
   }
 
-  // BH1750 Init
   if (lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
     bh1750OK = true;
   }
 
-  // DHT11 Init
   dht.begin();
 
-  // DFPlayer Init
   dfSerial.begin(9600, SERIAL_8N1, DF_RX, DF_TX);
   if (player.begin(dfSerial)) {
     dfPlayerOK = true;
     player.volume(20);
   }
 
-  // Wi-Fi Client Setup
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
 
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
     delay(500);
     Serial.print(".");
     attempts++;
@@ -214,10 +214,9 @@ void setup() {
     Serial.print("ESP32 IP: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("\nWiFi Connection Failed! Proceeding offline.");
+    Serial.println("\nWiFi connection failed! Retrying in background...");
   }
 
-  // Startup tone & sound
   tone(BUZZER_PIN, 2000, 200);
   if (dfPlayerOK) {
     player.playMp3Folder(1);
@@ -227,11 +226,7 @@ void setup() {
   updateOLED();
 }
 
-// =====================================================
-// MAIN LOOP
-// =====================================================
 void loop() {
-  // Touch detection -> Audio & Buzzer Trigger
   static bool prevTouch = false;
   int currentTouch = digitalRead(TOUCH_PIN);
 
@@ -243,14 +238,12 @@ void loop() {
   }
   prevTouch = (currentTouch == HIGH);
 
-  // Timed sensor acquisition and cloud dispatch
   if (millis() - lastCloudPost >= CLOUD_INTERVAL) {
     lastCloudPost = millis();
     readSensors();
     sendTelemetryToCloud();
   }
 
-  // Timed OLED update
   if (millis() - lastOLEDUpdate >= OLED_INTERVAL) {
     lastOLEDUpdate = millis();
     updateOLED();
