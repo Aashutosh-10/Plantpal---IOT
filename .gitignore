@@ -4,3 +4,5 @@ __pycache__/
 *.db
 *.sqlite3
 config.h
+firmware/config.h
+firmware/plantpal_esp32/config.h
