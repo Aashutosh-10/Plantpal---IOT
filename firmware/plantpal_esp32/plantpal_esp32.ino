@@ -868,7 +868,7 @@ void acknowledgeCommand(long commandId, bool success, const String& result) {
   String json = "{";
   json += "\"deviceId\":\"" + jsonEscape(DEVICE_ID) + "\",";
   json += "\"success\":" + String(success ? "true" : "false") + ",";
-  json += "\"result\":\"" + jsonEscape(result) + "";
+  json += "\"result\":\"" + jsonEscape(result) + "\"";
   json += "}";
   int code;
   String response;
@@ -945,7 +945,6 @@ bool executeCommand(long commandId, const String& command, const String& value, 
     result = "Audio disabled";
   }
   else if (command == "SILENT_MODE") {
-    audioEnabled = false;
     audioEnabled = false;
     saveControls();
     showMessage("Quiet mode is now active.", "quiet");
@@ -1177,7 +1176,6 @@ void loop() {
     wakeOLED();
     if (audioEnabled && dfPlayerOK) {
       playTrack(60, trackText(60), "touch", true);
-      sendEventToCloud("touch", 60, trackText(60), "touch");
     }
   }
   previousTouch = currentTouch;
