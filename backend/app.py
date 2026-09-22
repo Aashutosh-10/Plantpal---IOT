@@ -39,7 +39,9 @@ def now_utc_iso() -> str:
 
 def get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
+    conn.execute("PRAGMA busy_timeout=15000")
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -361,38 +363,44 @@ def receive_data():
         str(data.get("lastActionMessage") or "")[:240],
     )
 
-    with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO readings (
-                device_id, soil_raw, soil_percent, lux, temperature, humidity,
-                touch, audio, status, timestamp, health_score, health_label,
-                soil_state, light_state, temperature_state, humidity_state,
-                audio_enabled, oled_enabled, last_audio_track,
-                last_audio_message, last_action, last_action_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (device_id, *values),
-        )
-        update_device_state(
-            conn,
-            device_id,
-            audio_available=parse_bool(data.get("audio")),
-            audio_enabled=parse_bool(data.get("audioEnabled"), True),
-            oled_enabled=parse_bool(data.get("oledEnabled"), True),
-            display_mode=str(data.get("displayMode") or "AUTO")[:20],
-            last_audio_track=clean_int(data.get("lastAudioTrack")),
-            last_audio_message=str(data.get("lastAudioMessage") or "")[:240],
-            last_action=str(data.get("lastAction") or "")[:80],
-            last_action_message=str(data.get("lastActionMessage") or "")[:240],
-            last_action_at=timestamp if data.get("lastActionMessage") else None,
-        )
-        # Keep the demo database bounded.
-        conn.execute(
-            "DELETE FROM readings WHERE id <= (SELECT MAX(id) - ? FROM readings)",
-            (MAX_HISTORY_ROWS,),
-        )
-        conn.commit()
+    try:
+        init_db()
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO readings (
+                    device_id, soil_raw, soil_percent, lux, temperature, humidity,
+                    touch, audio, status, timestamp, health_score, health_label,
+                    soil_state, light_state, temperature_state, humidity_state,
+                    audio_enabled, oled_enabled, last_audio_track,
+                    last_audio_message, last_action, last_action_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (device_id, *values),
+            )
+            update_device_state(
+                conn, device_id,
+                audio_available=parse_bool(data.get("audio")),
+                audio_enabled=parse_bool(data.get("audioEnabled"), True),
+                oled_enabled=parse_bool(data.get("oledEnabled"), True),
+                display_mode=str(data.get("displayMode") or "AUTO")[:20],
+                last_audio_track=clean_int(data.get("lastAudioTrack")),
+                last_audio_message=str(data.get("lastAudioMessage") or "")[:240],
+                last_action=str(data.get("lastAction") or "")[:80],
+                last_action_message=str(data.get("lastActionMessage") or "")[:240],
+                last_action_at=timestamp if data.get("lastActionMessage") else None,
+            )
+            conn.execute(
+                "DELETE FROM readings WHERE id <= (SELECT MAX(id) - ? FROM readings)",
+                (MAX_HISTORY_ROWS,),
+            )
+            conn.commit()
+    except sqlite3.Error:
+        app.logger.exception("PlantPal telemetry database error")
+        return jsonify({"status": "error", "message": "Database write failed"}), 500
+    except Exception:
+        app.logger.exception("PlantPal telemetry unexpected error")
+        return jsonify({"status": "error", "message": "Telemetry processing failed"}), 500
 
     return jsonify({"status": "success", "deviceId": device_id}), 201
 
