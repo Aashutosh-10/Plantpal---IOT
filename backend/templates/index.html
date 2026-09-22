@@ -254,6 +254,7 @@
       <div class="control-grid">
         <button class="control-btn" data-command="CHECK_PLANT"><div class="cicon">🩺</div><strong>Check plant</strong><span>read sensors + respond</span></button>
         <button class="control-btn" data-command="TIME_GREETING"><div class="cicon">🕒</div><strong>Time greeting</strong><span>match local IST period</span></button>
+        <button class="control-btn" data-command="PLAY_AUDIO" data-value="1"><div class="cicon">🔊</div><strong>Test speaker</strong><span>play PlantPal voice</span></button>
         <button class="control-btn" data-command="WATERED"><div class="cicon">💦</div><strong>I watered it</strong><span>log human watering</span></button>
         <button class="control-btn" data-command="DISPLAY_MODE" data-value="HEALTH"><div class="cicon">❤️</div><strong>OLED health</strong><span>show health index</span></button>
         <button class="control-btn" data-command="DISPLAY_MODE" data-value="AUTO"><div class="cicon">📟</div><strong>OLED auto</strong><span>return to live cycle</span></button>
@@ -262,7 +263,7 @@
       <div class="toggle-row">
         <button class="toggle" id="oledToggle"><span class="switch"></span> OLED</button>
         <button class="toggle" id="audioToggle"><span class="switch"></span> Audio</button>
-        <button class="toggle" id="quietToggle"><span class="switch"></span> Quiet mode</button>
+                <button class="toggle" id="quietToggle"><span class="switch"></span> Quiet mode</button>
       </div>
 
       <div class="select-row">
@@ -396,7 +397,7 @@
 
     setToggle('oledToggle',data.device?.oledEnabled ?? data.oledEnabled);
     setToggle('audioToggle',data.device?.audioEnabled ?? data.audioEnabled);
-    setToggle('quietToggle',!(data.device?.audioEnabled ?? data.audioEnabled));
+        setToggle('quietToggle',!(data.device?.audioEnabled ?? data.audioEnabled));
 
     $('wifiState').textContent=data.device?.online?'ONLINE':'OFFLINE';
     $('audioHardware').textContent=data.device?.audioAvailable?'DFPLAYER READY':'NOT READY';
@@ -422,7 +423,7 @@
     if(kind==='watered') return '💧';
     if(kind==='touch') return '👆';
     if(kind==='audio') return '🔊';
-    if(kind==='display') return '📟';
+        if(kind==='display') return '📟';
     if(kind==='quiet') return '🔇';
     if(kind==='cloud') return '☁️';
     return '🌿';
