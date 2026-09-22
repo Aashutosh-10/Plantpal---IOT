@@ -1,186 +1,281 @@
-# 🌱 PlantPal — Bidirectional Cloud IoT Smart Plant Monitor
+# 🌱 PlantPal — Embedded-First Smart Plant System
 
-PlantPal is a three-person Embedded Systems + IoT project built around an ESP32. It combines environmental sensing, local human interaction, voice feedback, an OLED interface, and a cloud dashboard with remote commands.
+PlantPal is a 3-person college Embedded Systems project built around an ESP32. The design deliberately treats **embedded operation as the primary system** and the cloud/I​​oT layer as an optional extension.
 
 ## Architecture
 
 ```text
-                 ┌─────────────────────┐
-                 │   PlantPal Website  │
-                 │  Monitor + Control  │
-                 └──────────┬──────────┘
-                            ↕ HTTPS/REST
-                 ┌──────────┴──────────┐
-                 │      Render         │
-                 │ Flask + SQLite API  │
-                 └──────────┬──────────┘
-                            ↕ HTTPS/REST
-                 ┌──────────┴──────────┐
-                 │       ESP32         │
-                 │ Wi-Fi + control     │
-                 └──┬──┬──┬──┬──┬─────┘
-                    │  │  │  │  │
-                  Soil DHT BH OLED DFPlayer
-                  34   4  21/22 27  UART2
+Plant + Sensors
+      ↓
+     ESP32
+      ↓
+ ┌────┴───────────────────┐
+ │ Local embedded system  │
+ │ sensors / health /     │
+ │ OLED / touch / audio   │
+ └────┬───────────────────┘
+      │ optional Wi-Fi
+      ↓
+     Render
+      ↕
+   Dashboard
 ```
 
-The ESP32 uploads telemetry every 5 seconds and polls the cloud command queue every 1.5 seconds. Website controls therefore travel through the cloud and can trigger physical ESP32 actions remotely, as long as the device remains online.
+The plant-monitoring functions continue to work without Wi-Fi, Internet, Render, or a database connection.
 
-## Hardware pin map
+## Hardware
 
-| Component | Pin | ESP32 |
-|---|---|---|
-| OLED | SDA | GPIO21 |
-| OLED | SCL | GPIO22 |
-| OLED | VCC | 3.3V |
-| OLED | GND | GND |
-| BH1750 | SDA | GPIO21 |
-| BH1750 | SCL | GPIO22 |
-| BH1750 | VCC | 3.3V |
-| BH1750 | GND | GND |
-| BH1750 | ADD/ADO | NC |
-| Soil sensor | AOUT | GPIO34 |
-| Soil sensor | VCC | 3.3V |
-| Soil sensor | GND | GND |
-| DHT11 | DATA | GPIO4 |
-| DHT11 | VCC | 3.3V |
-| DHT11 | GND | GND |
-| TTP223 | SIG | GPIO27 |
-| TTP223 | VCC | 3.3V |
-| TTP223 | GND | GND |
-| DFPlayer | RX | GPIO17 / TX2 |
-| DFPlayer | TX | GPIO16 / RX2 |
-| DFPlayer | VCC | ESP32 VIN/VN (5V) |
-| DFPlayer | GND | GND |
-| DFPlayer | SPK1 | Passive speaker terminal 1 |
-| DFPlayer | SPK2 | Passive speaker terminal 2 |
+- ESP32 Dev Module / ESP32-WROOM-32
+- 0.96-inch SSD1306 OLED, I²C, address 0x3C or 0x3D
+- BH1750 light sensor
+- Capacitive soil moisture sensor V2.0
+- DHT11 temperature/humidity module
+- TTP223 capacitive touch module
+- DFPlayer Mini
+- 4Ω 5W passive speaker
+- 4GB microSD card containing the PlantPal audio library
+- Solderless breadboard and jumpers
 
-**Important:** There is no separate buzzer in the final hardware. DFPlayer SPK1/SPK2 connect directly to the 4Ω 5W passive speaker. There is no GPIO25 connection.
+**There is no separate buzzer. GPIO25 is unused.**
 
-### Final I²C breadboard correction
+## Exact final pins
 
-Keep one breadboard column as SDA and a separate column as SCL. The following arrangement is recommended:
+| Component | Connection |
+|---|---|
+| OLED SDA | GPIO21 |
+| OLED SCL | GPIO22 |
+| BH1750 SDA | GPIO21 |
+| BH1750 SCL | GPIO22 |
+| Soil AOUT | GPIO34 |
+| DHT11 DATA | GPIO4 |
+| TTP223 SIG | GPIO27 |
+| DFPlayer TX | GPIO16 / ESP32 RX2 |
+| DFPlayer RX | GPIO17 / ESP32 TX2 |
+| DFPlayer VCC | ESP32 VIN/VN (5V while USB powered) |
+| DFPlayer GND | GND |
+| Speaker | DFPlayer SPK1/SPK2 |
 
-- Column 5 = SDA: ESP32 GPIO21 + BH1750 SDA + OLED SDA
-- Column 6 = SCL: ESP32 GPIO22 + BH1750 SCL + OLED SCL
+### Breadboard I²C topology
 
-The OLED SDA/SCL connections must not be crossed.
+Because A–E in a single numbered breadboard column are electrically common:
 
-## Remote commands
+```text
+Column 5 = SDA
+A5 → GPIO21
+C5 → BH1750 SDA
+E5 → OLED SDA
 
-Supported commands:
+Column 6 = SCL
+A6 → GPIO22
+C6 → BH1750 SCL
+E6 → OLED SCL
+```
 
-- `PLAY_AUDIO` — play MP3 file 0001–0073
-- `CHECK_PLANT` — read sensors, show a checking message, then play the most relevant status response
-- `TIME_GREETING` — choose morning/afternoon/evening/night audio using NTP time in IST
-- `OLED_ON`, `OLED_OFF`
-- `AUDIO_ON`, `AUDIO_OFF`
-- `SILENT_MODE`
-- `DISPLAY_MODE` = AUTO / HEALTH / SENSORS / STATUS / SAVER
-- `WATERED` — log a human watering event without fabricating sensor values
-- `CALIBRATE_DRY` / `CALIBRATE_WET` — project-specific soil calibration
+Do **not** swap the OLED SDA/SCL positions.
 
-## Time awareness
+## Audio library
 
-The ESP32 uses NTP time over Wi-Fi with an India Standard Time offset (+05:30). No RTC module is required for this design.
+The firmware knows all 73 PlantPal tracks and displays the spoken text on the OLED/cloud dashboard when that track is triggered.
 
-Current period mapping:
+Recommended SD layout:
 
-- 05:00–11:59 → 0025 morning
-- 12:00–16:59 → 0026 afternoon
-- 17:00–21:59 → 0027 evening
-- 22:00–04:59 → 0067 night
+```text
+/MP3/0001.mp3
+/MP3/0002.mp3
+...
+/MP3/0073.mp3
+```
 
-The firmware announces each period at most once per calendar day and avoids repeating it on every telemetry packet.
+The code uses the DFRobot `playMp3Folder()` API by default. The serial console also supports a root-file playback mode for boards whose SD layout requires it.
 
-## Plant profile: Golden Pothos
+The official DFRobot library documents `playMp3Folder()`, `play()`, `readFileCounts()`, `readCurrentFileNumber()` and the DFPlayer event/error API. citeturn802609search0turn802609search1
 
-PlantPal's default profile is **Golden Pothos (Epipremnum aureum)**. It was selected because it is attractive, beginner-friendly, adaptable, and suitable for a compact planter. RHS guidance describes Epipremnum as an easy-to-grow houseplant that prefers bright indirect light, tolerates some shade, should not be overwatered, and grows best around 18–30°C. RHS also recommends allowing the top ~2 cm (1 inch) of compost to dry before watering and keeping the growing medium moisture-retentive but well-drained. See the sources below.
+## Local behaviour
 
-The PlantPal lux, humidity and sensor-percentage bands are **engineering thresholds for this particular prototype**, not universal scientific limits for all Pothos plants. Soil moisture percentage is derived from the user's sensor's dry/wet calibration and must be calibrated in the actual local soil.
+The firmware provides:
 
-Sources:
-- https://www.rhs.org.uk/plants/epipremnum/growing-guide
-- https://www.rhs.org.uk/plants/91403/epipremnum-aureum/details
+- Sensor reading and filtering
+- Soil calibration
+- Plant-specific interpretation
+- Composite health score
+- Plant status messages
+- OLED pages
+- Hand-drawn monochrome icons
+- OLED message overlays
+- Automatic screen saver
+- TTP223 single/double/long-touch interactions
+- Local speaker playback
+- DFPlayer diagnostics
+- Local serial command console
+- Time-aware morning/afternoon/evening/night greetings when NTP is available
+- Local operation with Wi-Fi disconnected
 
-## Local garden soil
+## Plant profile
 
-Garden soil can compact in a container and hold water unevenly. PlantPal therefore treats soil moisture as a calibrated sensor condition and does not pretend a raw ADC number is a universal moisture percentage. Use the actual final soil in the final pot for dry/wet calibration.
+The selected plant is **Golden Pothos (Epipremnum aureum)**. University Extension guidance describes pothos as a low-maintenance houseplant that prefers moderate-to-bright/bright indirect light, avoids direct sun, and should be watered after the soil/medium dries rather than kept continuously saturated. Penn State also gives average room-temperature guidance of roughly 60–80°F. citeturn234926search0turn234926search1turn234926search2
 
-## Setup
+PlantPal converts those qualitative requirements into engineering bands suitable for the device. Lux bands and soil percentages are **project-specific operating bands**, not universal botanical units.
+
+## Soil calibration
+
+The initial firmware defaults are:
+
+```cpp
+SOIL_DRY_VALUE  = 3000
+SOIL_WET_VALUE  = 1200
+```
+
+These are only starting values. Calibrate again after the actual local garden soil and final pot are installed.
+
+Serial commands:
+
+```text
+cal dry
+cal wet
+cal reset
+```
+
+The dry point should be measured from the final dry reference and the wet point from the intended watered reference. The sensor percentage is a calibrated relative scale.
+
+## Serial console
+
+Open Serial Monitor at **115200 baud** and use:
+
+```text
+help
+status
+sensors
+check
+hello
+plant
+show
+scan / i2c
+audio 1
+test audio
+audio info
+stop
+audio on
+audio off
+audiopath folder
+audiopath root
+oled on
+oled off
+mode auto
+mode sensors
+mode health
+mode status
+mode saver
+volume 18
+time
+wifi
+cal dry
+cal wet
+cal reset
+cloud on
+cloud off
+quiet
+```
+
+## Optional cloud layer
+
+The backend provides:
+
+- `POST /api/sensor-data`
+- `GET /api/latest`
+- `GET /api/history`
+- `POST /api/commands`
+- `GET /api/commands/next`
+- `POST /api/commands/<id>/ack`
+- `GET /api/commands/history`
+- `POST /api/events`
+- `GET /api/events`
+- `GET /health`
+
+The command layer supports remote:
+
+- Plant check
+- Time greeting
+- Any of the 73 audio tracks
+- Speaker stop
+- OLED on/off
+- Audio on/off
+- Quiet mode
+- OLED display mode
+- Speaker volume
+- Manual watering log
+- Soil dry/wet calibration
+- Remote message
+- Screen saver/wake
+
+The ESP32 polls commands over HTTPS. A command ID is stored in ESP32 Preferences so a duplicated pending command is not replayed as a second physical action.
+
+## Time
+
+The ESP32 uses NTP only when Wi-Fi is available and formats time for IST (+05:30):
+
+- 05:00–11:59 → track 0025
+- 12:00–16:59 → track 0026
+- 17:00–21:59 → track 0027
+- 22:00–04:59 → track 0067
+
+No RTC is required for the IoT-enhanced build. Environmental monitoring does not depend on time synchronization.
+
+## Render
+
+A Render service can be used for the dashboard/API. A cron job is not required to keep it awake while PlantPal is operating because the ESP32 itself provides regular inbound requests. Free Render filesystems can be ephemeral; SQLite is acceptable for a college demonstration, but a persistent managed database is preferable for production history.
+
+## Security
+
+`config.h` is intentionally gitignored. Keep actual Wi-Fi credentials out of the public repository. The example file is `config.example.h`.
+
+## Deployment
 
 ### Backend
 
-```bash
-cd backend
-python -m venv .venv
-# Windows
-.venv\\Scripts\\activate
-# macOS/Linux
-# source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
-```
-
-### Render
-
-Use the backend service as a Python web service with Gunicorn, for example:
+Use the repository root or the backend directory according to your Render configuration. A typical Python web service command is:
 
 ```text
-gunicorn app:app
+gunicorn backend.app:app
 ```
 
-Keep `plantpal.db` untracked. On Render's ephemeral filesystem, SQLite data is suitable for a college prototype but is not durable storage across all restarts/redeployments. A persistent hosted database should be used for a production deployment.
+### Firmware
 
-### ESP32
+Open `firmware/plantpal_esp32/plantpal_esp32.ino` in Arduino IDE with `config.h` in the same sketch folder.
 
-1. Open `firmware/plantpal_esp32/plantpal_esp32.ino`.
-2. Copy `firmware/plantpal_esp32/config.example.h` to `firmware/plantpal_esp32/config.h` (the real `config.h` is ignored by Git).
-3. Set your Wi-Fi credentials locally in that ignored file.
-4. Use **ESP32 Dev Module**.
-5. Upload to the correct COM port.
-6. Open Serial Monitor at **115200 baud**.
+Select:
 
-Do not commit real Wi-Fi credentials to GitHub.
+```text
+Board: ESP32 Dev Module
+Port: COM7 (or the detected ESP32 COM port)
+Serial: 115200
+```
 
-## Final audio library
+Install:
 
-The SD card contains 73 files, `0001.mp3` through `0073.mp3`, generated using ElevenLabs HOPE (Professional & Clear), covering:
+- ESP32 by Espressif Systems
+- Adafruit GFX Library
+- Adafruit SSD1306
+- BH1750
+- DHT sensor library
+- Adafruit Unified Sensor
+- DFRobotDFPlayerMini
 
-- personality/greetings
-- soil/water
-- light
-- temperature
-- humidity
-- plant health
-- cloud/remote commands
-- touch interaction
-- quiet/audio modes
-- day/night greetings
-- sensor/cloud errors
+## Final hardware validation
 
-Whenever an audio track is played, PlantPal publishes an event to the cloud. The website displays the latest spoken text, and the OLED shows the same message temporarily before returning to its normal display cycle.
+Do not cut the breadboard until these all pass:
 
-## OLED behavior
+```text
+OLED                 ✓
+BH1750               ✓
+Soil sensor          ✓
+DHT11                ✓
+TTP223               ✓
+DFPlayer             ✓
+Speaker              ✓
+Local plant logic    ✓
+Wi-Fi (optional)     ✓
+Cloud telemetry      ✓
+Remote command       ✓
+```
 
-The OLED has:
-
-- live sensor pages
-- health index page
-- device/status page
-- temporary action/message overlays
-- custom monochrome iconography for water, sunlight, warnings and the plant
-- remote ON/OFF
-- remote display modes
-- automatic screen saver after inactivity
-- touch wake-up
-
-Unicode emoji are used in the website UI. The OLED uses hand-drawn monochrome icons because a standard 0.96-inch SSD1306 cannot reliably render full Unicode emoji fonts.
-
-## Design philosophy
-
-PlantPal is intentionally **human-assisted**, not fully automated. There is no automatic water pump. The system measures and interprets plant conditions, alerts the caretaker, supports remote interaction, and allows the human to decide when and how the plant is watered.
-
-## Important prototype limitation
-
-The remote control API is designed for a college prototype and currently has no production-grade user authentication. For a public deployment, add authentication/authorization before exposing actuator controls broadly.
+Then run the system for an extended period before permanent enclosure assembly.

@@ -1,8 +1,18 @@
+# Local secrets
+config.h
+
+# Python
 .venv/
 __pycache__/
 *.pyc
+
+# Local/runtime databases
 *.db
+*.sqlite
 *.sqlite3
-config.h
-firmware/config.h
-firmware/plantpal_esp32/config.h
+
+# IDE/system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
