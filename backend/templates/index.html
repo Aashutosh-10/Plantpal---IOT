@@ -124,7 +124,7 @@
         <h2 class="heroTitle">Your plant has a<br><span>voice, memory & control.</span></h2>
         <p class="heroDesc">PlantPal reads the root-zone and microclimate locally on the ESP32. The cloud is an optional remote layer for telemetry, events and commands.</p>
         <div class="statusLine">
-          <div class="statusBubble">🌿 <span id="plantProfile">Golden Pothos</span></div>
+          <div class="statusBubble">🌿 <span id="plantProfile">Tulsi</span></div>
           <div class="statusBubble">🧠 <span id="healthText">Checking sensors</span></div>
           <div class="statusBubble">🕒 <span id="timeText">--:--</span></div>
         </div>
@@ -150,9 +150,9 @@
       </div>
       <div class="panel section">
         <div class="sectionHead"><div><h2>Plant profile</h2><p>Device operating envelope</p></div></div>
-        <div class="profile"><div class="profileIcon">🌿</div><div><strong>Golden Pothos</strong><span>Epipremnum aureum · hardy tropical houseplant profile</span></div></div>
+        <div class="profile"><div class="profileIcon">🌿</div><div><strong>Tulsi</strong><span>Ocimum tenuiflorum · traditional aromatic herb profile</span></div></div>
         <div class="bands">
-          <div class="band"><b>Light</b><span>Bright indirect preferred</span></div>
+          <div class="band"><b>Light</b><span>Bright light preferred</span></div>
           <div class="band"><b>Temperature</b><span>18–30°C target</span></div>
           <div class="band"><b>Humidity</b><span>40–80% project band</span></div>
           <div class="band"><b>Watering</b><span>Human-controlled</span></div>
@@ -240,7 +240,7 @@ async function updateLatest(){
     $('soilState').textContent=x.soilState||'Unknown';$('lightState').textContent=x.lightState||'Unknown';$('tempState').textContent=x.temperatureState||'Unknown';$('humidityState').textContent=x.humidityState||'Unknown';
     setBar('soilBar',x.soilPercent,100);setBar('lightBar',Math.min(Number(x.lux)||0,5000),5000);setBar('tempBar',Math.min(Math.max((Number(x.temperature)||0),0),40),40);setBar('humidityBar',x.humidity,100);
     const score=Math.max(0,Math.min(100,Number(x.healthScore)||0));$('healthScore').textContent=score;$('scoreCaption').textContent=`${score} / 100`;$('ring').style.setProperty('--score',score);$('healthText').textContent=x.healthLabel||'Checking sensors';
-    $('plantProfile').textContent=x.plant||'Golden Pothos';$('timeText').textContent=fmtTime(x.timestamp);$('touch').textContent=x.touch?'YES':'NO';$('volume').textContent=x.volume??'--';$('oled').textContent=x.oledEnabled?'ON':'OFF';$('audio').textContent=x.audio?'READY':'ERROR';$('firmware').textContent=x.firmware||'--';$('deviceId').textContent=x.deviceId||DEVICE;
+    $('plantProfile').textContent=x.plant||'Tulsi';$('timeText').textContent=fmtTime(x.timestamp);$('touch').textContent=x.touch?'YES':'NO';$('volume').textContent=x.volume??'--';$('oled').textContent=x.oledEnabled?'ON':'OFF';$('audio').textContent=x.audio?'READY':'ERROR';$('firmware').textContent=x.firmware||'--';$('deviceId').textContent=x.deviceId||DEVICE;
     $('actionIcon').textContent=iconFor(data.event?.kind||x.lastAction);$('actionTitle').textContent=x.lastActionMessage||x.status||'PlantPal online';$('actionMessage').textContent=data.event?.message||x.lastAudioMessage||x.status||'Monitoring locally.';
     if(x.lastAudioTrack){$('audioTrack').textContent=`Track ${String(x.lastAudioTrack).padStart(4,'0')} · ${fmtTime(x.timestamp)}`;$('audioMessage').textContent=x.lastAudioMessage||''}
     updateSwitch('oledSwitch',x.oledEnabled);updateSwitch('audioSwitch',x.audioEnabled);
