@@ -51,7 +51,7 @@ The plant-monitoring functions continue to work without Wi-Fi, Internet, Render,
 | TTP223 SIG | GPIO27 |
 | DFPlayer TX | GPIO16 / ESP32 RX2 |
 | DFPlayer RX | GPIO17 / ESP32 TX2 |
-| DFPlayer VCC | ESP32 VIN/VN (5V while USB powered) |
+| DFPlayer VCC | Dedicated proper 5V supply |
 | DFPlayer GND | GND |
 | Speaker | DFPlayer SPK1/SPK2 |
 
@@ -75,7 +75,7 @@ Do **not** swap the OLED SDA/SCL positions.
 
 ## Audio library
 
-The firmware knows all 73 PlantPal tracks and displays the spoken text on the OLED/cloud dashboard when that track is triggered.
+The final firmware knows all 73 PlantPal tracks and displays the spoken text on the OLED/cloud dashboard when that track is triggered.
 
 Recommended SD layout:
 
@@ -112,7 +112,7 @@ The firmware provides:
 
 ## Plant profile
 
-The selected plant is **Golden Pothos (Epipremnum aureum)**. University Extension guidance describes pothos as a low-maintenance houseplant that prefers moderate-to-bright/bright indirect light, avoids direct sun, and should be watered after the soil/medium dries rather than kept continuously saturated. Penn State also gives average room-temperature guidance of roughly 60–80°F. citeturn234926search0turn234926search1turn234926search2
+The selected plant is **Tulsi (Ocimum tenuiflorum)**. University Extension guidance describes Tulsi as a low-maintenance houseplant that prefers moderate-to-bright/bright indirect light, avoids direct sun, and should be watered after the soil/medium dries rather than kept continuously saturated. Penn State also gives average room-temperature guidance of roughly 60–80°F. citeturn234926search0turn234926search1turn234926search2
 
 PlantPal converts those qualitative requirements into engineering bands suitable for the device. Lux bands and soil percentages are **project-specific operating bands**, not universal botanical units.
 
@@ -279,3 +279,24 @@ Remote command       ✓
 ```
 
 Then run the system for an extended period before permanent enclosure assembly.
+
+
+## GitHub repository layout
+
+```text
+backend/
+  app.py
+  requirements.txt
+  templates/
+    index.html
+
+firmware/
+  plantpal_esp32/
+    plantpal_esp32.ino
+    config.example.h
+
+.gitignore
+README.md
+```
+
+Keep your real `config.h` local; `.gitignore` excludes it. Do not commit credentials.
