@@ -134,11 +134,16 @@ uint32_t lastCloudCommandPollAt = 0;
 uint32_t lastCloudRetryAt = 0;
 uint32_t lastCloudEventAt = 0;
 uint32_t lastCloudConnectReportAt = 0;
+bool wifiAttemptActive = false;
+uint32_t wifiAttemptStartedAt = 0;
+bool localAPActive = false;
 
 static const uint32_t CLOUD_TELEMETRY_INTERVAL_MS = 5000UL;
 static const uint32_t CLOUD_COMMAND_POLL_INTERVAL_MS = 1800UL;
 static const uint32_t CLOUD_RETRY_INTERVAL_MS = 10000UL;
-static const uint32_t CLOUD_HTTP_TIMEOUT_MS = 5000UL;
+static const uint32_t CLOUD_HTTP_TIMEOUT_MS = 12000UL;
+static const uint32_t CLOUD_CONNECT_TIMEOUT_MS = 8000UL;
+static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000UL;
 static const uint32_t CLOUD_EVENT_MIN_INTERVAL_MS = 1000UL;
 
 // ============================================================================
@@ -2471,6 +2476,21 @@ String buildCloudEventJson(const String& kind, int track,
   return json;
 }
 
+void startLocalAPFallback() {
+  if (localAPActive) return;
+
+  WiFi.mode(WIFI_AP_STA);
+  bool ok = WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 4);
+  localAPActive = ok;
+
+  Serial.print("[WEB] Local AP fallback: ");
+  Serial.println(ok ? "STARTED" : "FAILED");
+  if (ok) {
+    Serial.print("[WEB] Local IP: ");
+    Serial.println(WiFi.softAPIP());
+  }
+}
+
 bool cloudRequest(const String& method, const String& path, const String& body,
                   int& httpCode, String& response) {
   httpCode = -1;
@@ -2484,19 +2504,45 @@ bool cloudRequest(const String& method, const String& path, const String& body,
   client.setInsecure();
 
   HTTPClient http;
+  http.setConnectTimeout(CLOUD_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
+  // Render/proxy responses are short; HTTP/1.0 + close avoids persistent/chunked
+  // response handling issues on embedded clients.
+  http.useHTTP10(true);
+  http.setReuse(false);
 
   String url = String(SERVER_BASE_URL) + path;
 
-  if (!http.begin(client, url)) return false;
+  if (!http.begin(client, url)) {
+    Serial.print("[CLOUD] HTTP begin failed: ");
+    Serial.println(url);
+    return false;
+  }
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-PlantPal-Device", String(DEVICE_ID));
+  http.addHeader("Connection", "close");
 
-  if (method == "POST") httpCode = http.POST(body);
-  else httpCode = http.GET();
+  if (method == "POST") {
+    httpCode = http.POST(body);
+  } else {
+    httpCode = http.GET();
+  }
 
-  if (httpCode > 0) response = http.getString();
+  // Only command polling needs the response body. POST endpoints only need
+  // the HTTP result code, avoiding unnecessary response-body waits.
+  if (httpCode > 0 && method != "POST") {
+    response = http.getString();
+  }
+
+  if (httpCode < 0) {
+    Serial.print("[CLOUD] ");
+    Serial.print(method);
+    Serial.print(" ");
+    Serial.print(path);
+    Serial.print(" -> ");
+    Serial.println(http.errorToString(httpCode));
+  }
 
   http.end();
   return httpCode >= 200 && httpCode < 300;
@@ -2505,34 +2551,51 @@ bool cloudRequest(const String& method, const String& path, const String& body,
 void cloudConnect() {
   if (!cloudEnabled || !PLANTPAL_HAS_CONFIG) {
     cloudConnected = false;
-    Serial.println("[CLOUD] Disabled or config.h unavailable.");
     return;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     cloudConnected = true;
+    wifiAttemptActive = false;
     return;
   }
 
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(false);
+  // Use STA alone while attempting the Internet connection. This avoids the
+  // ESP32 radio sharing a second channel with the fallback SoftAP.
+  if (!wifiAttemptActive) {
+    if (localAPActive) {
+      WiFi.softAPdisconnect(true);
+      localAPActive = false;
+    }
 
-  Serial.print("[WIFI] Connecting to: ");
-  Serial.println(WIFI_SSID);
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.persistent(false);
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print("[WIFI] Connecting to: ");
+    Serial.println(WIFI_SSID);
+    Serial.print("[WIFI] Current channel/band must be 2.4 GHz for ESP32.");
+    Serial.println();
 
-  uint32_t started = millis();
-
-  while (WiFi.status() != WL_CONNECTED && millis() - started < 15000UL) {
-    delay(250);
-    Serial.print(".");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    wifiAttemptActive = true;
+    wifiAttemptStartedAt = millis();
+    return;
   }
 
-  Serial.println();
+  if (millis() - wifiAttemptStartedAt >= WIFI_CONNECT_TIMEOUT_MS) {
+    wifiAttemptActive = false;
+    WiFi.disconnect(false, false);
+    cloudConnected = false;
+    Serial.print("[WIFI] Connection attempt timed out. status=");
+    Serial.println((int)WiFi.status());
+    startLocalAPFallback();
+    lastCloudRetryAt = millis();
+    return;
+  }
 
   if (WiFi.status() == WL_CONNECTED) {
+    wifiAttemptActive = false;
     cloudConnected = true;
 
     Serial.print("[WIFI] STA connected. IP: ");
@@ -2544,14 +2607,8 @@ void cloudConnect() {
     Serial.print("[CLOUD] Server: ");
     Serial.println(SERVER_BASE_URL);
 
-    // India Standard Time for time-aware greetings.
     configTime(19800, 0, "pool.ntp.org", "time.nist.gov");
-
     lastCloudRetryAt = millis();
-  } else {
-    cloudConnected = false;
-    lastCloudRetryAt = millis();
-    Serial.println("[WIFI] STA connection failed.");
   }
 }
 
@@ -3054,8 +3111,10 @@ void serviceCloud() {
   if (WiFi.status() != WL_CONNECTED) {
     cloudConnected = false;
 
-    if (now - lastCloudRetryAt >= CLOUD_RETRY_INTERVAL_MS) {
+    if (!wifiAttemptActive && now - lastCloudRetryAt >= CLOUD_RETRY_INTERVAL_MS) {
       lastCloudRetryAt = now;
+      cloudConnect();
+    } else if (wifiAttemptActive) {
       cloudConnect();
     }
 
@@ -3063,6 +3122,7 @@ void serviceCloud() {
   }
 
   cloudConnected = true;
+  wifiAttemptActive = false;
 
   if (now - lastCloudTelemetryAt >= CLOUD_TELEMETRY_INTERVAL_MS) {
     lastCloudTelemetryAt = now;
@@ -3130,23 +3190,33 @@ void setup() {
   initializeDFPlayer();
 
   // --------------------------------------------------
-  // Local Wi-Fi AP + Internet STA
+  // Internet STA first; local AP is a fallback only.
+  // This avoids radio-channel contention with a phone hotspot.
   // --------------------------------------------------
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
 
-  bool apStarted = WiFi.softAP(AP_SSID, AP_PASSWORD);
-
-  Serial.print("[WIFI] Local AP started: ");
-  Serial.println(apStarted ? "YES" : "NO");
-  Serial.print("[WIFI] Local SSID: "); Serial.println(AP_SSID);
-  Serial.print("[WIFI] Local IP: "); Serial.println(WiFi.softAPIP());
-
-  // Connect to configured hotspot/router for cloud IoT.
   cloudConnect();
 
+  uint32_t wifiWaitStart = millis();
+  while (WiFi.status() != WL_CONNECTED &&
+         millis() - wifiWaitStart < WIFI_CONNECT_TIMEOUT_MS) {
+    cloudConnect();
+    delay(250);
+  }
+
   if (WiFi.status() == WL_CONNECTED) {
+    cloudConnected = true;
+    wifiAttemptActive = false;
     Serial.print("[WIFI] Internet/STA IP: ");
     Serial.println(WiFi.localIP());
+  } else {
+    cloudConnected = false;
+    wifiAttemptActive = false;
+    Serial.println("[WIFI] STA unavailable at startup; entering local fallback.");
+    startLocalAPFallback();
+    lastCloudRetryAt = millis();
   }
 
   // --------------------------------------------------
