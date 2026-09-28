@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07110c">
+  <title>PlantPal — Living Plant Intelligence</title>
+  <style>
+    :root {
+      --bg:#07110c;
+      --panel:#0b1711;
+      --panel2:#0f1e16;
+      --border:rgba(255,255,255,.09);
+      --text:#f3f7f2;
+      --muted:#90a397;
+      --green:#6de79b;
+      --green2:#2ab86a;
+      --amber:#f5c96d;
+      --red:#fb7b7b;
+      --blue:#7bc5ff;
+      --shadow:0 24px 70px rgba(0,0,0,.28);
+      --radius:24px;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      background:
+        radial-gradient(circle at 15% 5%,rgba(109,231,155,.12),transparent 30%),
+        radial-gradient(circle at 92% 15%,rgba(123,197,255,.08),transparent 24%),
+        linear-gradient(180deg,#07110c 0%,#09150e 48%,#06100a 100%);
+      color:var(--text);
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      min-height:100vh;
+    }
+    button,select{font:inherit}
+    button{cursor:pointer}
+    .wrap{width:min(1180px,calc(100% - 28px));margin:auto;padding:20px 0 50px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:4px 0 18px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .brandmark{
+      width:44px;height:44px;border-radius:15px;display:grid;place-items:center;
+      background:linear-gradient(145deg,rgba(109,231,155,.24),rgba(42,184,106,.08));
+      border:1px solid rgba(109,231,155,.2);font-size:23px;
+      box-shadow:0 8px 30px rgba(42,184,106,.10)
+    }
+    .brand h1{font-size:19px;letter-spacing:-.02em;margin:0}
+    .brand small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+    .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:rgba(255,255,255,.04);border-radius:999px;padding:9px 12px;color:var(--muted);font-size:12px}
+    .dot{width:8px;height:8px;border-radius:999px;background:#65746a;box-shadow:0 0 0 5px rgba(101,116,106,.10)}
+    .online .dot{background:var(--green);box-shadow:0 0 0 5px rgba(109,231,155,.10),0 0 18px rgba(109,231,155,.55)}
+    .hero{display:grid;grid-template-columns:1.45fr .85fr;gap:14px}
+    .panel{background:linear-gradient(145deg,rgba(15,30,22,.96),rgba(8,19,13,.94));border:1px solid var(--border);box-shadow:var(--shadow);border-radius:var(--radius);overflow:hidden}
+    .heroMain{padding:25px;position:relative;min-height:250px}
+    .heroMain:before{content:"";position:absolute;inset:-30% auto auto 45%;width:300px;height:300px;border-radius:50%;background:rgba(109,231,155,.08);filter:blur(60px);pointer-events:none}
+    .eyebrow{display:flex;align-items:center;gap:9px;color:var(--green);font-size:11px;text-transform:uppercase;letter-spacing:.14em;font-weight:700}
+    .heroTitle{font-size:clamp(30px,5vw,58px);line-height:.96;letter-spacing:-.055em;margin:17px 0 13px;max-width:700px}
+    .heroTitle span{color:var(--green)}
+    .heroDesc{color:#aab8af;max-width:640px;line-height:1.55;font-size:14px;margin:0}
+    .statusLine{margin-top:24px;display:flex;flex-wrap:wrap;gap:9px}
+    .statusBubble{padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.035);border:1px solid var(--border);font-size:12px;color:#cbd5ce}
+    .actionCard{padding:20px}
+    .actionHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}
+    .actionHeader h2,.sectionHead h2{font-size:14px;margin:0;letter-spacing:-.01em}
+    .tiny{font-size:11px;color:var(--muted)}
+    .ring{width:132px;height:132px;border-radius:50%;margin:3px auto 17px;display:grid;place-items:center;background:conic-gradient(var(--green) calc(var(--score)*1%),rgba(255,255,255,.07) 0);position:relative;box-shadow:0 14px 50px rgba(42,184,106,.12)}
+    .ring:after{content:"";position:absolute;inset:10px;border-radius:50%;background:#0a1710;border:1px solid rgba(255,255,255,.08)}
+    .ringInner{position:relative;z-index:1;text-align:center}
+    .ringValue{font-size:31px;font-weight:800;letter-spacing:-.05em}
+    .ringLabel{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px}
+    .metric{padding:17px;min-height:145px;position:relative;transition:.25s transform,.25s border-color,.25s background}
+    .metric:hover,.control:hover,.activity:hover{transform:translateY(-2px);border-color:rgba(109,231,155,.24)}
+    .metricTop{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em}
+    .metricIcon{font-size:18px;filter:saturate(.9)}
+    .metricValue{font-size:32px;font-weight:800;letter-spacing:-.055em;margin-top:17px}
+    .unit{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0}
+    .metricState{font-size:11px;color:#aebbb2;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bar{height:5px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:15px}
+    .bar>i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--green2),var(--green));border-radius:inherit;transition:width .7s ease}
+    .lower{display:grid;grid-template-columns:1.25fr .75fr;gap:14px;margin-top:14px}
+    .section{padding:19px}
+    .sectionHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+    .sectionHead p{margin:0;color:var(--muted);font-size:11px}
+    .trendBox{height:190px;position:relative;border:1px solid var(--border);border-radius:18px;background:rgba(255,255,255,.02);overflow:hidden}
+    #trend{width:100%;height:100%;display:block}
+    .trendLabel{position:absolute;top:10px;right:11px;color:var(--muted);font-size:10px}
+    .profile{display:grid;grid-template-columns:54px 1fr;gap:12px;align-items:center;padding:13px;border:1px solid var(--border);background:rgba(255,255,255,.025);border-radius:17px}
+    .profileIcon{width:54px;height:54px;border-radius:17px;display:grid;place-items:center;font-size:28px;background:rgba(109,231,155,.08);border:1px solid rgba(109,231,155,.12)}
+    .profile strong{display:block;font-size:14px}.profile span{display:block;color:var(--muted);font-size:11px;margin-top:3px;line-height:1.45}
+    .bands{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}
+    .band{padding:11px;border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.02)}
+    .band b{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.band span{display:block;font-size:12px;margin-top:4px}
+    .controls{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .control{border:1px solid var(--border);background:rgba(255,255,255,.025);color:var(--text);border-radius:17px;padding:14px;text-align:left;transition:.2s;min-height:76px}
+    .control .ico{font-size:18px}.control b{display:block;font-size:12px;margin-top:8px}.control small{color:var(--muted);font-size:10px;display:block;margin-top:2px}
+    .control.primary{background:linear-gradient(145deg,rgba(109,231,155,.17),rgba(42,184,106,.06));border-color:rgba(109,231,155,.24)}
+    .toggles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+    .toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border:1px solid var(--border);border-radius:15px;background:rgba(255,255,255,.018)}
+    .toggle label{font-size:11px;color:#bac6bf}.switch{width:38px;height:22px;border-radius:99px;background:#24352b;border:1px solid rgba(255,255,255,.1);position:relative;cursor:pointer}.switch i{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#87958c;transition:.2s}.switch.on{background:rgba(42,184,106,.25);border-color:rgba(109,231,155,.3)}.switch.on i{left:19px;background:var(--green)}
+    .audioRow{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:13px}.select{width:100%;background:#0a1610;color:var(--text);border:1px solid var(--border);border-radius:13px;padding:11px 12px;outline:none}.miniBtn{border:1px solid rgba(109,231,155,.25);background:rgba(109,231,155,.08);color:var(--green);border-radius:13px;padding:11px 13px}
+    .activityList{display:grid;gap:7px;max-height:355px;overflow:auto;padding-right:3px}.activity{padding:12px;border:1px solid var(--border);border-radius:15px;background:rgba(255,255,255,.018);transition:.2s}.activityTop{display:flex;justify-content:space-between;gap:10px}.activity b{font-size:11px}.activity time{color:var(--muted);font-size:9px}.activity p{margin:6px 0 0;color:#bcc7c0;font-size:11px;line-height:1.4}
+    .lastAction{padding:14px;border:1px solid rgba(109,231,155,.14);background:rgba(109,231,155,.045);border-radius:17px;display:flex;gap:11px;align-items:flex-start}.lastAction .big{font-size:19px}.lastAction strong{display:block;font-size:12px}.lastAction span{display:block;color:#aab8af;font-size:11px;line-height:1.4;margin-top:4px}
+    .foot{display:flex;justify-content:space-between;gap:12px;color:#647269;font-size:10px;padding:18px 3px 0}.foot span:last-child{text-align:right}
+    .toast{position:fixed;right:18px;bottom:18px;z-index:10;opacity:0;transform:translateY(10px);pointer-events:none;transition:.25s;padding:12px 14px;border-radius:14px;border:1px solid rgba(109,231,155,.25);background:#0c1a12;color:#dce7df;box-shadow:0 18px 50px rgba(0,0,0,.35);font-size:11px}.toast.show{opacity:1;transform:none}
+    .pulse{animation:pulse 2.5s infinite}.float{animation:float 5s ease-in-out infinite}@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(109,231,155,.0)}50%{box-shadow:0 0 0 7px rgba(109,231,155,.06)}}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+    @media(max-width:900px){.hero,.lower{grid-template-columns:1fr}.grid4{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:620px){.wrap{width:min(100% - 16px,1180px);padding-top:11px}.topbar{padding-bottom:10px}.heroMain{padding:19px}.heroTitle{font-size:40px}.grid4{grid-template-columns:1fr 1fr;gap:8px}.metric{min-height:133px;padding:14px}.metricValue{font-size:26px}.controls{grid-template-columns:1fr 1fr}.toggles{grid-template-columns:1fr}.foot{display:block}.foot span{display:block;margin-top:4px}.audioRow{grid-template-columns:1fr}.miniBtn{width:100%}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandmark float">🌱</div>
+        <div><h1>PlantPal</h1><small>Living plant intelligence · embedded + cloud</small></div>
+      </div>
+      <div id="devicePill" class="pill"><span class="dot"></span><span id="deviceStatus">Local / waiting</span></div>
+    </header>
+
+    <section class="hero">
+      <div class="panel heroMain">
+        <div class="eyebrow">● LIVE PLANT STATE</div>
+        <h2 class="heroTitle">Your plant has a<br><span>voice, memory & control.</span></h2>
+        <p class="heroDesc">PlantPal reads the root-zone and microclimate locally on the ESP32. The cloud is an optional remote layer for telemetry, events and commands.</p>
+        <div class="statusLine">
+          <div class="statusBubble">🌿 <span id="plantProfile">Tulsi</span></div>
+          <div class="statusBubble">🧠 <span id="healthText">Checking sensors</span></div>
+          <div class="statusBubble">🕒 <span id="timeText">--:--</span></div>
+        </div>
+      </div>
+      <aside class="panel actionCard">
+        <div class="actionHeader"><h2>Plant health</h2><span class="tiny" id="scoreCaption">0 / 100</span></div>
+        <div class="ring" id="ring" style="--score:0"><div class="ringInner"><div class="ringValue" id="healthScore">--</div><div class="ringLabel">health</div></div></div>
+        <div class="lastAction"><div class="big" id="actionIcon">🌱</div><div><strong id="actionTitle">PlantPal is starting</strong><span id="actionMessage">Waiting for the embedded device…</span></div></div>
+      </aside>
+    </section>
+
+    <section class="grid4">
+      <article class="panel metric"><div class="metricTop"><span>Soil</span><span class="metricIcon">🌱</span></div><div class="metricValue"><span id="soil">--</span><span class="unit"> %</span></div><div class="metricState" id="soilState">Waiting</div><div class="bar"><i id="soilBar" style="--w:0%"></i></div></article>
+      <article class="panel metric"><div class="metricTop"><span>Light</span><span class="metricIcon">☀️</span></div><div class="metricValue"><span id="lux">--</span><span class="unit"> lx</span></div><div class="metricState" id="lightState">Waiting</div><div class="bar"><i id="lightBar" style="--w:0%"></i></div></article>
+      <article class="panel metric"><div class="metricTop"><span>Temperature</span><span class="metricIcon">🌡️</span></div><div class="metricValue"><span id="temp">--</span><span class="unit"> °C</span></div><div class="metricState" id="tempState">Waiting</div><div class="bar"><i id="tempBar" style="--w:0%"></i></div></article>
+      <article class="panel metric"><div class="metricTop"><span>Humidity</span><span class="metricIcon">💧</span></div><div class="metricValue"><span id="humidity">--</span><span class="unit"> %</span></div><div class="metricState" id="humidityState">Waiting</div><div class="bar"><i id="humidityBar" style="--w:0%"></i></div></article>
+    </section>
+
+    <section class="lower">
+      <div class="panel section">
+        <div class="sectionHead"><div><h2>Moisture trend</h2><p>Last 24 cloud readings · local sensor remains authoritative</p></div><span class="pill">RAW <span id="soilRaw">--</span></span></div>
+        <div class="trendBox"><canvas id="trend"></canvas><span class="trendLabel">soil %</span></div>
+      </div>
+      <div class="panel section">
+        <div class="sectionHead"><div><h2>Plant profile</h2><p>Device operating envelope</p></div></div>
+        <div class="profile"><div class="profileIcon">🌿</div><div><strong>Tulsi</strong><span>Ocimum tenuiflorum · traditional aromatic herb profile</span></div></div>
+        <div class="bands">
+          <div class="band"><b>Light</b><span>Bright light preferred</span></div>
+          <div class="band"><b>Temperature</b><span>18–30°C target</span></div>
+          <div class="band"><b>Humidity</b><span>40–80% project band</span></div>
+          <div class="band"><b>Watering</b><span>Human-controlled</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel section" style="margin-top:14px">
+      <div class="sectionHead"><div><h2>Remote control</h2><p>Commands are queued in the cloud; the ESP32 executes them locally when connected.</p></div><span class="pill" id="cloudPill"><span class="dot"></span><span>Cloud standby</span></span></div>
+      <div class="controls">
+        <button class="control primary" data-command="CHECK_PLANT"><span class="ico">🩺</span><b>Check plant</b><small>Read + interpret now</small></button>
+        <button class="control" data-command="TIME_GREETING"><span class="ico">🕒</span><b>Time greeting</b><small>Uses India time</small></button>
+        <button class="control" data-command="PING"><span class="ico">📡</span><b>Ping PlantPal</b><small>Remote connectivity test</small></button>
+        <button class="control" data-command="WATERED"><span class="ico">💧</span><b>I watered it</b><small>Log human action</small></button>
+        <button class="control" data-command="STOP_AUDIO"><span class="ico">⏹️</span><b>Stop audio</b><small>Stop speaker playback</small></button>
+        <button class="control" data-command="WAKE_SCREEN"><span class="ico">✨</span><b>Wake OLED</b><small>Return to auto mode</small></button>
+      </div>
+      <div class="toggles">
+        <div class="toggle"><label>OLED display</label><div class="switch" id="oledSwitch" onclick="toggleSetting('OLED')"><i></i></div></div>
+        <div class="toggle"><label>Speaker audio</label><div class="switch" id="audioSwitch" onclick="toggleSetting('AUDIO')"><i></i></div></div>
+        <div class="toggle"><label>Cloud commands</label><div class="switch on" id="cloudSwitch" onclick="toggleCloudUi()"><i></i></div></div>
+      </div>
+      <div class="audioRow">
+        <select id="audioSelect" class="select"></select>
+        <button class="miniBtn" onclick="playSelectedAudio()">▶ Play selected track</button>
+      </div>
+    </section>
+
+    <section class="lower">
+      <div class="panel section">
+        <div class="sectionHead"><div><h2>Last spoken message</h2><p>The ESP32 reports audio events back to the cloud.</p></div></div>
+        <div class="lastAction"><div class="big">🔊</div><div><strong id="audioTrack">No audio yet</strong><span id="audioMessage">The embedded speaker is waiting.</span></div></div>
+        <div class="statusLine" style="margin-top:10px"><div class="statusBubble">Touch: <span id="touch">--</span></div><div class="statusBubble">Volume: <span id="volume">--</span></div><div class="statusBubble">OLED: <span id="oled">--</span></div><div class="statusBubble">Audio: <span id="audio">--</span></div></div>
+      </div>
+      <div class="panel section">
+        <div class="sectionHead"><div><h2>Activity</h2><p>Most recent device events</p></div></div>
+        <div class="activityList" id="activity"><div class="activity"><div class="activityTop"><b>Waiting for PlantPal</b><time>--</time></div><p>Connect the ESP32 to Wi-Fi to begin cloud telemetry.</p></div></div>
+      </div>
+    </section>
+
+    <footer class="foot"><span>PlantPal · Embedded System First · Human-in-the-loop watering</span><span>Firmware <span id="firmware">--</span> · Device <span id="deviceId">plantpal-01</span></span></footer>
+  </main>
+  <div class="toast" id="toast"></div>
+
+<script>
+const DEVICE='plantpal-01';
+const tracks=[
+['0001','Hello! I\'m PlantPal.'],['0002','Your plant is doing great.'],['0003','Your plant needs some water.'],['0004','Your plant has enough moisture.'],['0005','The soil is getting dry.'],['0006','The soil is nicely moist.'],['0007','It\'s a little too dry for your plant.'],['0008','Your plant is getting plenty of light.'],['0009','Your plant needs more light.'],['0010','The light level looks good.'],['0011','It\'s quite dark here.'],['0012','It\'s getting a little too warm.'],['0013','The temperature looks comfortable.'],['0014','It\'s a little chilly for your plant.'],['0015','The humidity looks good.'],['0016','The air is getting too dry.'],['0017','The humidity is quite high.'],['0018','Time for a little drink.'],['0019','Your plant is thirsty.'],['0020','Your plant doesn\'t need water right now.'],['0021','Please water your plant.'],['0022','Your plant is happy and healthy.'],['0023','Everything looks good.'],['0024','I\'ll keep an eye on your plant.'],['0025','Good morning! Let\'s check on your plant.'],['0026','Good afternoon! Here\'s your plant update.'],['0027','Good evening! Let\'s see how your plant is doing.'],['0028','Plant check complete.'],['0029','Sensor check complete.'],['0030','PlantPal is ready.'],['0031','I\'m right here!'],['0032','Thanks for checking on me.'],['0033','It\'s time for a plant check.'],['0034','I\'ll keep an eye on your plant.'],['0035','Everything is under control.'],['0036','The soil is very dry.'],['0037','The soil moisture is looking good.'],['0038','Please check the soil before watering.'],['0039','Thanks for taking care of me.'],['0040','The light level is comfortable for your plant.'],['0041','It\'s a little dark for your plant.'],['0042','That\'s plenty of light for now.'],['0043','It\'s getting quite warm here.'],['0044','The temperature is in a comfortable range.'],['0045','It\'s getting a little cold here.'],['0046','The air feels comfortable for your plant.'],['0047','The air is a little too dry.'],['0048','The air is quite humid right now.'],['0049','Your plant is doing well overall.'],['0050','Your plant needs a little attention.'],['0051','I\'ve found something that needs your attention.'],['0052','The plant check is complete. Everything looks normal.'],['0053','Command received.'],['0054','I\'m checking your plant now.'],['0055','The remote command is complete.'],['0056','I\'ve received your request.'],['0057','Remote control is active.'],['0058','The cloud connection is active.'],['0059','The cloud connection has been restored.'],['0060','Touch detected!'],['0061','Hello there!'],['0062','Thanks for checking on me.'],['0063','Speaker test recording (legacy).'],['0064','Quiet mode is now active.'],['0065','Audio has been enabled.'],['0066','I\'ll stay quiet for now.'],['0067','Good night! I\'ll keep monitoring your plant.'],['0068','I\'m having trouble reading a sensor.'],['0069','The light sensor needs attention.'],['0070','The temperature sensor needs attention.'],['0071','The humidity sensor needs attention.'],['0072','The soil sensor needs attention.'],['0073','The cloud connection is unavailable right now.']
+];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window.__toast);window.__toast=setTimeout(()=>t.classList.remove('show'),2300)}
+function iconFor(kind){return ({audio:'🔊',watering:'💧',touch:'👆',wifi:'📡',oled:'🖥️',quiet:'🌙',check:'🩺',remote:'📡',time:'🕒',message:'💬',command:'⚙️',command_error:'⚠️'}[kind]||'🌱')}
+function fmtTime(v){if(!v)return '--';const d=new Date(v);if(Number.isNaN(d.getTime()))return String(v);return d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});}
+function setBar(id,value,max=100){const n=Math.max(0,Math.min(max,Number(value)||0));$(id).style.setProperty('--w',`${n/max*100}%`)}
+function updateSwitch(id,on){$(id).classList.toggle('on',!!on)}
+async function queueCommand(command,value=''){
+  try{
+    const r=await fetch('/api/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId:DEVICE,command,value})});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.message||'Command rejected');
+    toast(`Queued: ${command}${value?` · ${value}`:''}`);
+    refreshActivity();
+    return data;
+  }catch(e){toast(e.message||'Cloud command failed');return null}
+}
+function playSelectedAudio(){const v=$('audioSelect').value;if(v)queueCommand('PLAY_AUDIO',v)}
+function toggleSetting(kind){
+  const el=$(kind==='OLED'?'oledSwitch':'audioSwitch');
+  const target=el.classList.contains('on');
+  queueCommand(kind==='OLED'?(target?'OLED_OFF':'OLED_ON'):(target?'AUDIO_OFF':'AUDIO_ON'));
+}
+function toggleCloudUi(){toast('Cloud control is available while the ESP32 is online.')} 
+async function loadTrackList(){
+  const s=$('audioSelect');s.innerHTML='';tracks.forEach(([id,text])=>{const o=document.createElement('option');o.value=String(Number(id));o.textContent=`${id} · ${text}`;s.appendChild(o)})
+}
+async function updateLatest(){
+  try{
+    const r=await fetch(`/api/latest?deviceId=${encodeURIComponent(DEVICE)}`);if(!r.ok)throw new Error('dashboard unavailable');const data=await r.json();
+    if(data.status==='empty'){ $('deviceStatus').textContent='Waiting for device'; return; }
+    const x=data.reading||{}, d=data.device||{};
+    $('devicePill').classList.toggle('online',!!d.online);$('deviceStatus').textContent=d.online?'ESP32 online':'Device offline';
+    $('cloudPill').querySelector('span:last-child').textContent=d.online?'Cloud linked':'Cloud idle';
+    $('soil').textContent=x.soilPercent??'--';$('soilRaw').textContent=x.soilRaw??'--';$('lux').textContent=x.lux!=null?Math.round(x.lux):'--';$('temp').textContent=x.temperature!=null?Number(x.temperature).toFixed(1):'--';$('humidity').textContent=x.humidity!=null?Number(x.humidity).toFixed(0):'--';
+    $('soilState').textContent=x.soilState||'Unknown';$('lightState').textContent=x.lightState||'Unknown';$('tempState').textContent=x.temperatureState||'Unknown';$('humidityState').textContent=x.humidityState||'Unknown';
+    setBar('soilBar',x.soilPercent,100);setBar('lightBar',Math.min(Number(x.lux)||0,5000),5000);setBar('tempBar',Math.min(Math.max((Number(x.temperature)||0),0),40),40);setBar('humidityBar',x.humidity,100);
+    const score=Math.max(0,Math.min(100,Number(x.healthScore)||0));$('healthScore').textContent=score;$('scoreCaption').textContent=`${score} / 100`;$('ring').style.setProperty('--score',score);$('healthText').textContent=x.healthLabel||'Checking sensors';
+    $('plantProfile').textContent=x.plant||'Tulsi';$('timeText').textContent=fmtTime(x.timestamp);$('touch').textContent=x.touch?'YES':'NO';$('volume').textContent=x.volume??'--';$('oled').textContent=x.oledEnabled?'ON':'OFF';$('audio').textContent=x.audio?'READY':'ERROR';$('firmware').textContent=x.firmware||'--';$('deviceId').textContent=x.deviceId||DEVICE;
+    $('actionIcon').textContent=iconFor(data.event?.kind||x.lastAction);$('actionTitle').textContent=x.lastActionMessage||x.status||'PlantPal online';$('actionMessage').textContent=data.event?.message||x.lastAudioMessage||x.status||'Monitoring locally.';
+    if(x.lastAudioTrack){$('audioTrack').textContent=`Track ${String(x.lastAudioTrack).padStart(4,'0')} · ${fmtTime(x.timestamp)}`;$('audioMessage').textContent=x.lastAudioMessage||''}
+    updateSwitch('oledSwitch',x.oledEnabled);updateSwitch('audioSwitch',x.audioEnabled);
+  }catch(e){$('devicePill').classList.remove('online');$('deviceStatus').textContent='Cloud unavailable'}
+}
+async function refreshActivity(){
+  try{
+    const [ev,cmd]=await Promise.all([fetch(`/api/events?deviceId=${DEVICE}&limit=12`),fetch(`/api/commands/history?deviceId=${DEVICE}&limit=8`)]);
+    const events=(await ev.json()).events||[], commands=(await cmd.json()).commands||[];
+    const items=[...events.map(x=>({t:x.createdAt,title:`${iconFor(x.kind)} ${x.kind.replaceAll('_',' ')}`,msg:x.message,stamp:x.createdAt})),...commands.map(x=>({t:x.executedAt||x.createdAt,title:`⚙️ ${x.command}`,msg:x.result||x.value||'Queued',stamp:x.executedAt||x.createdAt}))].sort((a,b)=>new Date(b.t)-new Date(a.t)).slice(0,14);
+    $('activity').innerHTML=items.length?items.map(x=>`<div class="activity"><div class="activityTop"><b>${esc(x.title)}</b><time>${esc(fmtTime(x.stamp))}</time></div><p>${esc(x.msg||'')}</p></div>`).join(''):'<div class="activity"><b>No activity yet</b><p>Waiting for the first device event.</p></div>';
+  }catch(e){}
+}
+async function updateTrend(){
+  try{const r=await fetch(`/api/history?deviceId=${DEVICE}&limit=24`);const data=await r.json();drawTrend(data.points||[])}catch(e){}
+}
+function drawTrend(points){
+  const c=$('trend'),box=c.getBoundingClientRect(),d=devicePixelRatio||1;c.width=Math.max(300,box.width*d);c.height=Math.max(160,box.height*d);const ctx=c.getContext('2d');ctx.scale(d,d);const w=box.width,h=box.height;
+  ctx.clearRect(0,0,w,h);ctx.strokeStyle='rgba(255,255,255,.06)';ctx.lineWidth=1;for(let y=30;y<h;y+=40){ctx.beginPath();ctx.moveTo(12,y);ctx.lineTo(w-12,y);ctx.stroke()}
+  if(points.length<2)return;const vals=points.map(p=>Number(p.soilPercent)||0);const min=0,max=100;ctx.beginPath();points.forEach((p,i)=>{const x=12+(w-24)*(i/(points.length-1));const y=h-18-(h-46)*((Number(p.soilPercent)||0)-min)/(max-min);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle='#6de79b';ctx.lineWidth=2.4;ctx.stroke();ctx.lineTo(w-12,h-18);ctx.lineTo(12,h-18);ctx.closePath();ctx.fillStyle='rgba(109,231,155,.07)';ctx.fill();
+}
+document.querySelectorAll('[data-command]').forEach(b=>b.addEventListener('click',()=>queueCommand(b.dataset.command)));
+window.addEventListener('resize',updateTrend);loadTrackList();updateLatest();refreshActivity();updateTrend();setInterval(updateLatest,2500);setInterval(refreshActivity,5000);setInterval(updateTrend,5000);
+</script>
+</body>
+</html>
