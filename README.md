@@ -1,302 +1,78 @@
-# 🌱 PlantPal — Embedded-First Smart Plant System
+# PlantPal — Tulsi Embedded + IoT Final Package
 
-PlantPal is a 3-person college Embedded Systems project built around an ESP32. The design deliberately treats **embedded operation as the primary system** and the cloud/I​​oT layer as an optional extension.
+This package extends the supplied PlantPal exhibition firmware and Flask/SQLite backend with a consistent OLED mode selector, Tulsi-specific soil guidance, and 100% default speaker level.
 
-## Architecture
+## What changed
 
-```text
-Plant + Sensors
-      ↓
-     ESP32
-      ↓
- ┌────┴───────────────────┐
- │ Local embedded system  │
- │ sensors / health /     │
- │ OLED / touch / audio   │
- └────┬───────────────────┘
-      │ optional Wi-Fi
-      ↓
-     Render
-      ↕
-   Dashboard
-```
+- Nine matching OLED modes on the Render dashboard and local ESP32 page: `AUTO`, `OVERVIEW`, `SENSORS`, `SOIL`, `LIGHT`, `CLIMATE`, `HEALTH`, `STATUS`, `SAVER`.
+- Remote mode commands are validated by Flask and accepted/executed by the ESP32. The mode is persisted in Preferences and reported in telemetry.
+- `SAVER` turns the OLED off; **Wake OLED** or a touch interaction restores `AUTO`.
+- Volume UI uses 0–100%; it maps to DFPlayer software level 0–30. New/updated firmware initializes to **30/30 (100%) once**, then remembers subsequent choices.
+- Tulsi soil guidance distinguishes botanical care from the sensor scale. The firmware's project-defined bands are: 0–19 very dry, 20–34 getting dry, 35–70 target/good band, 71–85 wet, >85 very wet.
+- The 35–70% figure is a relative probe reading mapped between calibration points; it is **not** a scientific volumetric water-content percentage.
+- Suggested care: keep Tulsi soil moist but well-drained; check the upper ~2.5 cm / 1 inch of soil and water when it feels dry and the sensor is getting low. Do not keep it waterlogged.
+- Existing hardware pin map, audio tracks, command names and API endpoints are preserved.
 
-The plant-monitoring functions continue to work without Wi-Fi, Internet, Render, or a database connection.
+## OLED modes
 
-## Hardware
-
-- ESP32 Dev Module / ESP32-WROOM-32
-- 0.96-inch SSD1306 OLED, I²C, address 0x3C or 0x3D
-- BH1750 light sensor
-- Capacitive soil moisture sensor V2.0
-- DHT11 temperature/humidity module
-- TTP223 capacitive touch module
-- DFPlayer Mini
-- 4Ω 5W passive speaker
-- 4GB microSD card containing the PlantPal audio library
-- Solderless breadboard and jumpers
-
-**There is no separate buzzer. GPIO25 is unused.**
-
-## Exact final pins
-
-| Component | Connection |
+| Mode | Display purpose |
 |---|---|
-| OLED SDA | GPIO21 |
-| OLED SCL | GPIO22 |
-| BH1750 SDA | GPIO21 |
-| BH1750 SCL | GPIO22 |
-| Soil AOUT | GPIO34 |
+| AUTO | Rotates through overview, sensor, soil, light, climate and status pages |
+| OVERVIEW | Current plant state, health score and compact readings |
+| SENSORS | Soil raw/index, lux, temperature, humidity, touch and audio validity |
+| SOIL | Moisture index, target band and soil state |
+| LIGHT | BH1750 lux reading and light state |
+| CLIMATE | DHT11 temperature and relative humidity |
+| HEALTH | Composite project health percentage and label |
+| STATUS | Local device / Wi-Fi / audio status |
+| SAVER | OLED display off; wake/touch returns to AUTO |
+
+## Soil guidance for Tulsi
+
+The botanical source describes Tulsi (*Ocimum tenuiflorum*) as preferring moist, well-drained soil and doing poorly in waterlogged soils. A CBSE Academic herbal-care guide recommends watering when the top inch of soil is dry. The dashboard uses these as qualitative plant-care guidance, while 35–70% is the project's chosen relative sensor band.
+
+- Below 20%: very dry — inspect soil and water if the upper layer is dry.
+- 20–34%: getting dry — check the upper ~2.5 cm and consider watering.
+- 35–70%: project target band — do not water just to increase the number.
+- 71–85%: wet — allow drainage and drying before the next watering.
+- Above 85%: very wet — avoid adding water; check drainage.
+
+Calibrate with the actual final pot and soil. The defaults `SOIL_DRY_VALUE=3000` and `SOIL_WET_VALUE=1200` are starting points only.
+
+Care sources:
+- NC State Extension Plant Toolbox, *Ocimum tenuiflorum*: https://plants.ces.ncsu.edu/plants/ocimum-tenuiflorum/
+- CBSE Academic, *Herbal Heritage* (Tulsi care guidance): https://cbseacademic.nic.in/web_material/Curriculum23/publication/HERBAL_HERITAGE7.pdf
+
+## Hardware pin map
+
+| Part | ESP32 connection |
+|---|---|
+| OLED SDA + BH1750 SDA | GPIO21 |
+| OLED SCL + BH1750 SCL | GPIO22 |
+| Capacitive soil sensor AOUT | GPIO34 |
 | DHT11 DATA | GPIO4 |
 | TTP223 SIG | GPIO27 |
-| DFPlayer TX | GPIO16 / ESP32 RX2 |
-| DFPlayer RX | GPIO17 / ESP32 TX2 |
-| DFPlayer VCC | Dedicated proper 5V supply |
-| DFPlayer GND | GND |
-| Speaker | DFPlayer SPK1/SPK2 |
+| Buzzer + | GPIO25 |
+| DFPlayer TX → ESP32 RX2 | GPIO16 |
+| ESP32 TX2 → DFPlayer RX | GPIO17 |
+| DFPlayer power | Dedicated 5 V supply, with common GND |
+| Passive speaker | DFPlayer SPK1 / SPK2 only; neither terminal to GND |
 
-### Breadboard I²C topology
+`VN` is GPIO39 on the user's board and must not be used as a 5 V supply pin.
 
-Because A–E in a single numbered breadboard column are electrically common:
+## Install / update
 
-```text
-Column 5 = SDA
-A5 → GPIO21
-C5 → BH1750 SDA
-E5 → OLED SDA
+1. Open `firmware/PlantPal_Tulsi_Exhibition_Final/PlantPal_Tulsi_Exhibition_Final.ino` in Arduino IDE.
+2. Copy `config.example.h` to `config.h` in the same sketch directory, then enter your own Wi-Fi credentials. Keep `config.h` private and excluded from GitHub.
+3. Select **ESP32 Dev Module** and the detected COM port. Close Serial Monitor before uploading.
+4. Upload firmware. Open Serial Monitor at 115200 baud and verify OLED, BH1750, DHT11, DFPlayer and Wi-Fi startup.
+5. Replace the current cloud backend `app.py` and add the package's `templates/index.html` to the same backend deployment, retaining the existing `requirements.txt`.
+6. Run one full on-device test before using remote controls. Website commands require ESP32 station Wi-Fi plus a reachable cloud server.
 
-Column 6 = SCL
-A6 → GPIO22
-C6 → BH1750 SCL
-E6 → OLED SCL
-```
+## Volume note
 
-Do **not** swap the OLED SDA/SCL positions.
+The dashboard's 100% equals DFPlayer's documented software level 30/30. It does not guarantee a distortion-free acoustic output. Test at full level using a stable 5 V supply and reduce it if the speaker distorts, the ESP32 resets, or power becomes unstable.
 
-## Audio library
+## Validation status
 
-The final firmware knows all 73 PlantPal tracks and displays the spoken text on the OLED/cloud dashboard when that track is triggered.
-
-Recommended SD layout:
-
-```text
-/MP3/0001.mp3
-/MP3/0002.mp3
-...
-/MP3/0073.mp3
-```
-
-The code uses the DFRobot `playMp3Folder()` API by default. The serial console also supports a root-file playback mode for boards whose SD layout requires it.
-
-The official DFRobot library documents `playMp3Folder()`, `play()`, `readFileCounts()`, `readCurrentFileNumber()` and the DFPlayer event/error API. citeturn802609search0turn802609search1
-
-## Local behaviour
-
-The firmware provides:
-
-- Sensor reading and filtering
-- Soil calibration
-- Plant-specific interpretation
-- Composite health score
-- Plant status messages
-- OLED pages
-- Hand-drawn monochrome icons
-- OLED message overlays
-- Automatic screen saver
-- TTP223 single/double/long-touch interactions
-- Local speaker playback
-- DFPlayer diagnostics
-- Local serial command console
-- Time-aware morning/afternoon/evening/night greetings when NTP is available
-- Local operation with Wi-Fi disconnected
-
-## Plant profile
-
-The selected plant is **Tulsi (Ocimum tenuiflorum)**. University Extension guidance describes Tulsi as a low-maintenance houseplant that prefers moderate-to-bright/bright indirect light, avoids direct sun, and should be watered after the soil/medium dries rather than kept continuously saturated. Penn State also gives average room-temperature guidance of roughly 60–80°F. citeturn234926search0turn234926search1turn234926search2
-
-PlantPal converts those qualitative requirements into engineering bands suitable for the device. Lux bands and soil percentages are **project-specific operating bands**, not universal botanical units.
-
-## Soil calibration
-
-The initial firmware defaults are:
-
-```cpp
-SOIL_DRY_VALUE  = 3000
-SOIL_WET_VALUE  = 1200
-```
-
-These are only starting values. Calibrate again after the actual local garden soil and final pot are installed.
-
-Serial commands:
-
-```text
-cal dry
-cal wet
-cal reset
-```
-
-The dry point should be measured from the final dry reference and the wet point from the intended watered reference. The sensor percentage is a calibrated relative scale.
-
-## Serial console
-
-Open Serial Monitor at **115200 baud** and use:
-
-```text
-help
-status
-sensors
-check
-hello
-plant
-show
-scan / i2c
-audio 1
-test audio
-audio info
-stop
-audio on
-audio off
-audiopath folder
-audiopath root
-oled on
-oled off
-mode auto
-mode sensors
-mode health
-mode status
-mode saver
-volume 18
-time
-wifi
-cal dry
-cal wet
-cal reset
-cloud on
-cloud off
-quiet
-```
-
-## Optional cloud layer
-
-The backend provides:
-
-- `POST /api/sensor-data`
-- `GET /api/latest`
-- `GET /api/history`
-- `POST /api/commands`
-- `GET /api/commands/next`
-- `POST /api/commands/<id>/ack`
-- `GET /api/commands/history`
-- `POST /api/events`
-- `GET /api/events`
-- `GET /health`
-
-The command layer supports remote:
-
-- Plant check
-- Time greeting
-- Any of the 73 audio tracks
-- Speaker stop
-- OLED on/off
-- Audio on/off
-- Quiet mode
-- OLED display mode
-- Speaker volume
-- Manual watering log
-- Soil dry/wet calibration
-- Remote message
-- Screen saver/wake
-
-The ESP32 polls commands over HTTPS. A command ID is stored in ESP32 Preferences so a duplicated pending command is not replayed as a second physical action.
-
-## Time
-
-The ESP32 uses NTP only when Wi-Fi is available and formats time for IST (+05:30):
-
-- 05:00–11:59 → track 0025
-- 12:00–16:59 → track 0026
-- 17:00–21:59 → track 0027
-- 22:00–04:59 → track 0067
-
-No RTC is required for the IoT-enhanced build. Environmental monitoring does not depend on time synchronization.
-
-## Render
-
-A Render service can be used for the dashboard/API. A cron job is not required to keep it awake while PlantPal is operating because the ESP32 itself provides regular inbound requests. Free Render filesystems can be ephemeral; SQLite is acceptable for a college demonstration, but a persistent managed database is preferable for production history.
-
-## Security
-
-`config.h` is intentionally gitignored. Keep actual Wi-Fi credentials out of the public repository. The example file is `config.example.h`.
-
-## Deployment
-
-### Backend
-
-Use the repository root or the backend directory according to your Render configuration. A typical Python web service command is:
-
-```text
-gunicorn backend.app:app
-```
-
-### Firmware
-
-Open `firmware/plantpal_esp32/plantpal_esp32.ino` in Arduino IDE with `config.h` in the same sketch folder.
-
-Select:
-
-```text
-Board: ESP32 Dev Module
-Port: COM7 (or the detected ESP32 COM port)
-Serial: 115200
-```
-
-Install:
-
-- ESP32 by Espressif Systems
-- Adafruit GFX Library
-- Adafruit SSD1306
-- BH1750
-- DHT sensor library
-- Adafruit Unified Sensor
-- DFRobotDFPlayerMini
-
-## Final hardware validation
-
-Do not cut the breadboard until these all pass:
-
-```text
-OLED                 ✓
-BH1750               ✓
-Soil sensor          ✓
-DHT11                ✓
-TTP223               ✓
-DFPlayer             ✓
-Speaker              ✓
-Local plant logic    ✓
-Wi-Fi (optional)     ✓
-Cloud telemetry      ✓
-Remote command       ✓
-```
-
-Then run the system for an extended period before permanent enclosure assembly.
-
-
-## GitHub repository layout
-
-```text
-backend/
-  app.py
-  requirements.txt
-  templates/
-    index.html
-
-firmware/
-  plantpal_esp32/
-    plantpal_esp32.ino
-    config.example.h
-
-.gitignore
-README.md
-```
-
-Keep your real `config.h` local; `.gitignore` excludes it. Do not commit credentials.
+Source-level checks are included in this delivery. A real ESP32 compile/upload and a live Render integration test still need to be done with the user's board and deployment because they cannot be proven by static source inspection alone.
