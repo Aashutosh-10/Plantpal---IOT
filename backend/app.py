@@ -4,29 +4,58 @@ import sqlite3
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+from contextlib import contextmanager
 
-APP_VERSION = "PlantPal Cloud 2.0"
-DEVICE_ONLINE_WINDOW = 20
+APP_VERSION = "PlantPal Cloud 2.1 Responsive"
+# Firmware publishes telemetry every ~6 s and bounded network retries can miss
+# several intervals; keep the device online during brief mobile-network jitter.
+DEVICE_ONLINE_WINDOW = 30
 DATABASE_PATH = Path(os.environ.get("PLANTPAL_DB", "plantpal.db"))
 
 app = Flask(__name__)
 CORS(app)
 
 
+@app.after_request
+def disable_api_caching(response):
+    if request.path.startswith("/api/") or request.path == "/health":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+@contextmanager
 def connect_db():
-    conn = sqlite3.connect(DATABASE_PATH, timeout=5)
+    """Open, tune, commit/rollback and always close a short-lived DB connection.
+
+    sqlite3.Connection's context manager commits/rolls back but does not close
+    the connection. Explicitly closing each request connection avoids quietly
+    accumulating open connections under Gunicorn/concurrent dashboard traffic.
+    WAL mode is established once in init_db(), not on every API call.
+    """
+    conn = sqlite3.connect(DATABASE_PATH, timeout=2.5)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    return conn
+    conn.execute("PRAGMA busy_timeout=2500")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db():
     with connect_db() as conn:
+        # Enable WAL once at startup; repeating this for every request adds
+        # needless SQLite work and can contend with active readers/writers.
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS readings (
