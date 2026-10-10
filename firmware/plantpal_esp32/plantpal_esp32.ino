@@ -72,7 +72,7 @@
   --------------------
   Single tap : greeting / wake display
   Double tap : plant check with spoken result
-  Long press: cycle AUTO -> SENSORS -> HEALTH -> STATUS -> AUTO
+  Long press: cycle AUTO -> OVERVIEW -> SENSORS -> SOIL -> LIGHT -> CLIMATE -> HEALTH -> STATUS -> AUTO
 
   PHONE DASHBOARD
   ---------------
@@ -197,7 +197,7 @@ Preferences prefs;
 // 04. APPLICATION CONSTANTS
 // ============================================================================
 
-static const char* FW_VERSION = "PlantPal Tulsi Exhibition 1.1";
+static const char* FW_VERSION = "PlantPal Tulsi Exhibition 1.2";
 static const char* PLANT_NAME = "Tulsi";
 static const char* PLANT_SPECIES = "Ocimum tenuiflorum";
 
@@ -219,7 +219,11 @@ static const uint32_t TOUCH_LONG_PRESS_MS = 2200UL;
 // ============================================================================
 // These are project bands. Soil percentage is calibration-dependent.
 
-// Soil percentage
+// Tulsi soil guidance mapped to the calibrated PlantPal relative sensor scale.
+// 0-19: very dry; 20-34: drying; 35-70: target operating band; 71-85: wet;
+// >85: very wet. These percentages are NOT volumetric water content.
+// Water only when the scale is low AND the top ~2.5 cm of soil feels dry.
+// Tulsi prefers moist, well-drained soil and does poorly if waterlogged.
 static const int SOIL_VERY_DRY_PCT = 20;
 static const int SOIL_DRY_PCT = 35;
 static const int SOIL_GOOD_MAX_PCT = 70;
@@ -257,7 +261,7 @@ bool dfPlayerReady = false;
 bool audioEnabled = true;
 bool autoAudioEnabled = true;
 
-int audioVolume = 20;
+int audioVolume = 30; // DFPlayer maximum software level (30/30 = 100%).
 int soilDryCalibration = DEFAULT_SOIL_DRY_RAW;
 int soilWetCalibration = DEFAULT_SOIL_WET_RAW;
 
@@ -561,6 +565,19 @@ int clampTrack(int track) {
   return constrain(track, 1, 73);
 }
 
+// OLED modes are shared by firmware, cloud API and dashboard.
+bool isSupportedDisplayMode(const String& mode) {
+  return mode == "AUTO" ||
+         mode == "OVERVIEW" ||
+         mode == "SENSORS" ||
+         mode == "SOIL" ||
+         mode == "LIGHT" ||
+         mode == "CLIMATE" ||
+         mode == "HEALTH" ||
+         mode == "STATUS" ||
+         mode == "SAVER";
+}
+
 // ============================================================================
 // 16. PREFERENCES
 // ============================================================================
@@ -575,17 +592,23 @@ void loadSettings() {
   oledEnabled = prefs.getBool("oled", true);
   audioEnabled = prefs.getBool("audio", true);
   autoAudioEnabled = prefs.getBool("autoAudio", true);
-  audioVolume = constrain((int)prefs.getUInt("volume", 20), 0, 30);
+  // One-time migration: older PlantPal builds defaulted to level 20.
+  // Start this upgraded build at 100% (30/30), then preserve later dashboard choices.
+  const uint32_t volumeSchema = prefs.getUInt("volSchema", 0);
+  if (volumeSchema < 1) {
+    audioVolume = 30;
+    prefs.putUInt("volume", 30);
+    prefs.putUInt("volSchema", 1);
+  } else {
+    audioVolume = constrain((int)prefs.getUInt("volume", 30), 0, 30);
+  }
   soilDryCalibration = prefs.getInt("dry", DEFAULT_SOIL_DRY_RAW);
   soilWetCalibration = prefs.getInt("wet", DEFAULT_SOIL_WET_RAW);
   displayMode = prefs.getString("mode", "AUTO");
 
   displayMode.toUpperCase();
 
-  if (displayMode != "AUTO" &&
-      displayMode != "SENSORS" &&
-      displayMode != "HEALTH" &&
-      displayMode != "STATUS") {
+  if (!isSupportedDisplayMode(displayMode)) {
     displayMode = "AUTO";
   }
 }
@@ -1302,8 +1325,12 @@ void doubleBeep() {
 // ============================================================================
 
 void cycleDisplayMode() {
-  if (displayMode == "AUTO") displayMode = "SENSORS";
-  else if (displayMode == "SENSORS") displayMode = "HEALTH";
+  if (displayMode == "AUTO") displayMode = "OVERVIEW";
+  else if (displayMode == "OVERVIEW") displayMode = "SENSORS";
+  else if (displayMode == "SENSORS") displayMode = "SOIL";
+  else if (displayMode == "SOIL") displayMode = "LIGHT";
+  else if (displayMode == "LIGHT") displayMode = "CLIMATE";
+  else if (displayMode == "CLIMATE") displayMode = "HEALTH";
   else if (displayMode == "HEALTH") displayMode = "STATUS";
   else displayMode = "AUTO";
 
@@ -1330,6 +1357,10 @@ void processTouch() {
     if (stableTouch) {
       touchPressedAt = now;
       longPressHandled = false;
+      if (displayMode == "SAVER") {
+        displayMode = "AUTO";
+        saveSettings();
+      }
       wakeOLED();
     }
     else {
@@ -1615,6 +1646,64 @@ void renderMessagePage() {
   oledWrapped(messageText, 0, 17, 21, 4);
 }
 
+void renderSoilPage() {
+  oledHeader("TULSI", "SOIL MOISTURE");
+  display.setTextSize(2);
+  display.setCursor(0, 16);
+  if (sensors.soilValid) {
+    display.print(sensors.soilPercent);
+    display.print("%");
+  } else {
+    display.print("--");
+  }
+  display.setTextSize(1);
+  display.setCursor(0, 40);
+  display.print("Target: 35-70%");
+  display.setCursor(0, 53);
+  display.print(sensors.soilValid ? soilState : "CHECK PROBE");
+}
+
+void renderLightPage() {
+  oledHeader("TULSI", "LIGHT");
+  display.setTextSize(2);
+  display.setCursor(0, 17);
+  if (sensors.lightValid) {
+    display.print(sensors.lux, 0);
+  } else {
+    display.print("--");
+  }
+  display.setTextSize(1);
+  display.setCursor(0, 40);
+  display.print("Illuminance: lux");
+  display.setCursor(0, 53);
+  display.print(sensors.lightValid ? lightState : "CHECK BH1750");
+}
+
+void renderClimatePage() {
+  oledHeader("TULSI", "CLIMATE");
+  display.setTextSize(1);
+  display.setCursor(0, 16);
+  display.print("Temp: ");
+  if (sensors.temperatureValid) {
+    display.print(sensors.temperature, 1);
+    display.print(" C");
+  } else {
+    display.print("CHECK DHT11");
+  }
+  display.setCursor(0, 30);
+  display.print("Humidity: ");
+  if (sensors.humidityValid) {
+    display.print(sensors.humidity, 0);
+    display.print("%");
+  } else {
+    display.print("--");
+  }
+  display.setCursor(0, 45);
+  display.print(temperatureState);
+  display.setCursor(0, 56);
+  display.print(humidityState);
+}
+
 void renderAutoPage() {
   if (millis() - lastAutoPageChange >= AUTO_PAGE_INTERVAL_MS) {
     autoPage = (autoPage + 1) % 6;
@@ -1624,56 +1713,11 @@ void renderAutoPage() {
   switch (autoPage) {
     case 0: renderSmartPage(); break;
     case 1: renderSensorsPage(); break;
-    case 2:
-      oledHeader("PLANTPAL", "SOIL");
-      display.setTextSize(2);
-      display.setCursor(0, 16);
-      if (sensors.soilValid) {
-        display.print(sensors.soilPercent);
-        display.print("%");
-      } else {
-        display.print("ERR");
-      }
-      display.setTextSize(1);
-      display.setCursor(0, 40);
-      display.print("State: ");
-      display.println(soilState);
-      display.setCursor(0, 53);
-      display.print("Raw: ");
-      display.println(sensors.soilRaw);
-      break;
+    case 2: renderSoilPage(); break;
 
-    case 3:
-      oledHeader("PLANTPAL", "LIGHT");
-      display.setTextSize(2);
-      display.setCursor(0, 17);
-      if (sensors.lightValid) {
-        display.print(sensors.lux, 0);
-      } else {
-        display.print("ERR");
-      }
-      display.setTextSize(1);
-      display.setCursor(0, 44);
-      display.print("Lux state: ");
-      display.println(lightState);
-      break;
+    case 3: renderLightPage(); break;
 
-    case 4:
-      oledHeader("PLANTPAL", "CLIMATE");
-      display.setTextSize(1);
-      display.setCursor(0, 16);
-      display.print("Temp: ");
-      if (sensors.temperatureValid) display.print(sensors.temperature, 1); else display.print("ERR");
-      display.println(" C");
-      display.setCursor(0, 30);
-      display.print("Hum : ");
-      if (sensors.humidityValid) display.print(sensors.humidity, 0); else display.print("ERR");
-      display.println("%");
-      display.setCursor(0, 45);
-      display.print(temperatureState);
-      display.print(" / ");
-      display.println(humidityState);
-      break;
+    case 4: renderClimatePage(); break;
 
     case 5:
       oledHeader("PLANTPAL", "INFO");
@@ -1715,11 +1759,22 @@ void renderOLED() {
 
   if (messageActive()) {
     renderMessagePage();
+  } else if (displayMode == "OVERVIEW") {
+    renderSmartPage();
+  } else if (displayMode == "SENSORS") {
+    renderSensorsPage();
+  } else if (displayMode == "SOIL") {
+    renderSoilPage();
+  } else if (displayMode == "LIGHT") {
+    renderLightPage();
+  } else if (displayMode == "CLIMATE") {
+    renderClimatePage();
+  } else if (displayMode == "HEALTH") {
+    renderHealthPage();
+  } else if (displayMode == "STATUS") {
+    renderStatusPage();
   } else {
-    if (displayMode == "SENSORS") renderSensorsPage();
-    else if (displayMode == "HEALTH") renderHealthPage();
-    else if (displayMode == "STATUS") renderStatusPage();
-    else renderAutoPage();
+    renderAutoPage();
   }
 
   display.display();
@@ -1844,6 +1899,12 @@ button:active{transform:scale(.99)}
 </div>
 
 <div class="card">
+  <div class="section-title">Tulsi Soil Guide</div>
+  <div class="muted">PlantPal target band: <b>35–70%</b> on this sensor's calibrated relative scale (a practical middle range is about 40–60%). This is not a universal percentage of water in soil.</div>
+  <div class="muted" style="margin-top:7px">Keep soil moist but well-drained. Check the top ~2.5 cm (1 inch): water when this layer feels dry and the sensor is getting low. Above 85% is a very-wet warning; check drainage and avoid adding more water.</div>
+</div>
+
+<div class="card">
   <div class="section-title">Plant Actions</div>
   <div class="controls">
     <button onclick="act('check')">Check Plant</button>
@@ -1861,18 +1922,24 @@ button:active{transform:scale(.99)}
     <button onclick="act('oled_on')">OLED ON</button>
     <button onclick="act('oled_off')">OLED OFF</button>
   </div>
+  <div class="muted">Choose what the OLED shows</div>
   <select id="modeSelect" onchange="setMode(this.value)">
-    <option value="AUTO">AUTO</option>
-    <option value="SENSORS">SENSORS</option>
-    <option value="HEALTH">HEALTH</option>
-    <option value="STATUS">STATUS</option>
+    <option value="AUTO">AUTO · cycle through pages</option>
+    <option value="OVERVIEW">OVERVIEW · plant state + health</option>
+    <option value="SENSORS">SENSORS · all sensor readings</option>
+    <option value="SOIL">SOIL · moisture + Tulsi target</option>
+    <option value="LIGHT">LIGHT · lux + state</option>
+    <option value="CLIMATE">CLIMATE · temperature + humidity</option>
+    <option value="HEALTH">HEALTH · score + status</option>
+    <option value="STATUS">STATUS · device information</option>
+    <option value="SAVER">SAVER · turn OLED off</option>
   </select>
 </div>
 
 <div class="card">
   <div class="section-title">Audio Settings</div>
-  <div class="muted">Volume 0–30</div>
-  <input id="volume" type="range" min="0" max="30" value="20" oninput="setVolume(this.value)">
+  <div class="muted">Speaker volume <b id="volumeLabel">100% · level 30/30</b></div>
+  <input id="volume" type="range" min="0" max="100" step="5" value="100" oninput="showLocalVolume(this.value)" onchange="setVolume(this.value)">
   <div class="controls">
     <button onclick="act('audio_on')">Audio ON</button>
     <button onclick="act('audio_off')">Audio OFF</button>
@@ -1943,7 +2010,10 @@ function getData(){
     document.getElementById('condition').innerText=d.condition;
     document.getElementById('audioState').innerText=d.audioReady?(d.audioEnabled?'AUDIO OK':'MUTED'):'ERROR';
     document.getElementById('touch').innerText=d.touch?'YES':'NO';
-    document.getElementById('volume').value=d.volume;
+    if(document.activeElement!==document.getElementById('volume')){
+      document.getElementById('volume').value=Math.round(Math.max(0,Math.min(30,Number(d.volume)||0))*100/30);
+      showLocalVolume(document.getElementById('volume').value);
+    }
     document.getElementById('dryCal').innerText=d.soilDry;
     document.getElementById('wetCal').innerText=d.soilWet;
     document.getElementById('modeSelect').value=d.displayMode;
@@ -1953,8 +2023,10 @@ function getData(){
 function act(c){ fetch('/api/action?cmd='+encodeURIComponent(c),{cache:'no-store'}).then(()=>getData()); }
 function play(n){ fetch('/api/play?id='+n,{cache:'no-store'}).then(()=>getData()); }
 function setMode(v){ fetch('/api/action?cmd=mode&value='+encodeURIComponent(v),{cache:'no-store'}).then(()=>getData()); }
-function setVolume(v){ fetch('/api/action?cmd=volume&value='+v,{cache:'no-store'}).then(()=>getData()); }
+function showLocalVolume(pct){const level=Math.round(Math.max(0,Math.min(100,Number(pct)||0))*30/100);document.getElementById('volumeLabel').innerText=`${pct}% · level ${level}/30`;}
+function setVolume(pct){ const level=Math.round(Math.max(0,Math.min(100,Number(pct)||0))*30/100); fetch('/api/action?cmd=volume&value='+level,{cache:'no-store'}).then(()=>getData()); }
 function toggleAutoAudio(){ fetch('/api/action?cmd=auto_audio&value='+(currentData.autoAudio?'off':'on'),{cache:'no-store'}).then(()=>getData()); }
+showLocalVolume(document.getElementById('volume').value);
 getData();
 setInterval(getData,1800);
 </script>
@@ -2104,6 +2176,7 @@ void handleAction() {
 
   else if (cmd == "oled_on") {
     oledEnabled = true;
+    if (displayMode == "SAVER") displayMode = "AUTO";
     wakeOLED();
     saveSettings();
     response = "OLED enabled";
@@ -2117,10 +2190,11 @@ void handleAction() {
   }
 
   else if (cmd == "mode") {
-    if (value == "AUTO" || value == "SENSORS" || value == "HEALTH" || value == "STATUS") {
+    if (isSupportedDisplayMode(value)) {
       displayMode = value;
       oledEnabled = true;
-      wakeOLED();
+      if (displayMode == "SAVER") sleepOLED();
+      else wakeOLED();
       saveSettings();
       response = "Display mode set to " + displayMode;
     } else {
@@ -2165,7 +2239,7 @@ void handleAction() {
   }
 
   else if (cmd == "volume") {
-    int v = constrain(server.hasArg("value") ? server.arg("value").toInt() : 20, 0, 30);
+    int v = constrain(server.hasArg("value") ? server.arg("value").toInt() : 30, 0, 30);
     audioVolume = v;
     if (dfPlayerReady) player.volume(audioVolume);
     saveSettings();
@@ -2314,10 +2388,15 @@ void printHelp() {
   Serial.println("volume N              Volume 0-30");
   Serial.println("oled on               Enable OLED");
   Serial.println("oled off              Disable OLED");
-  Serial.println("mode auto             OLED auto pages");
-  Serial.println("mode sensors          OLED sensors page");
-  Serial.println("mode health           OLED health page");
-  Serial.println("mode status           OLED status page");
+  Serial.println("mode auto             OLED auto-cycle pages");
+  Serial.println("mode overview         Smart overview");
+  Serial.println("mode sensors          All sensor values / validity");
+  Serial.println("mode soil             Soil moisture + Tulsi target band");
+  Serial.println("mode light            Lux and light state");
+  Serial.println("mode climate          Temperature + humidity");
+  Serial.println("mode health           Plant health percentage");
+  Serial.println("mode status           Device status");
+  Serial.println("mode saver            OLED screen saver");
   Serial.println("cal dry               Capture current as dry");
   Serial.println("cal wet               Capture current as wet");
   Serial.println("cal reset             Reset soil calibration");
@@ -2441,10 +2520,11 @@ void handleSerialCommand(String command) {
   if (upper.startsWith("MODE ")) {
     String mode = command.substring(5);
     mode.toUpperCase();
-    if (mode == "AUTO" || mode == "SENSORS" || mode == "HEALTH" || mode == "STATUS") {
+    if (isSupportedDisplayMode(mode)) {
       displayMode = mode;
       oledEnabled = true;
-      wakeOLED();
+      if (mode == "SAVER") sleepOLED();
+      else wakeOLED();
       saveSettings();
     }
     return;
@@ -2942,6 +3022,7 @@ bool executeCloudCommand(const String& commandIn,
 
   if (command == "OLED_ON") {
     oledEnabled = true;
+    if (displayMode == "SAVER") displayMode = "AUTO";
     oledSleeping = false;
     wakeOLED();
     saveSettings();
@@ -3014,18 +3095,19 @@ bool executeCloudCommand(const String& commandIn,
     String mode = value;
     mode.toUpperCase();
 
-    if (mode != "AUTO" &&
-        mode != "SENSORS" &&
-        mode != "HEALTH" &&
-        mode != "STATUS") {
+    if (!isSupportedDisplayMode(mode)) {
       result = "Invalid display mode.";
       return false;
     }
 
     displayMode = mode;
     oledEnabled = true;
-    oledSleeping = false;
-    wakeOLED();
+    if (mode == "SAVER") {
+      sleepOLED();
+    } else {
+      oledSleeping = false;
+      wakeOLED();
+    }
     saveSettings();
 
     lastAction = "DISPLAY_MODE";
@@ -3129,9 +3211,10 @@ bool executeCloudCommand(const String& commandIn,
   }
 
   if (command == "SCREEN_SAVER") {
+    displayMode = "SAVER";
     oledSleeping = true;
-    display.clearDisplay();
-    display.display();
+    sleepOLED();
+    saveSettings();
 
     lastAction = "SCREEN_SAVER";
     lastActionMessage = "Screen saver enabled.";
@@ -3140,9 +3223,11 @@ bool executeCloudCommand(const String& commandIn,
   }
 
   if (command == "WAKE_SCREEN") {
+    displayMode = "AUTO";
     oledSleeping = false;
     oledEnabled = true;
     wakeOLED();
+    saveSettings();
 
     lastAction = "WAKE_SCREEN";
     lastActionMessage = "OLED awakened.";
