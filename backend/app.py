@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from contextlib import contextmanager
 
-APP_VERSION = "PlantPal Cloud 2.1 Responsive"
+APP_VERSION = "PlantPal Cloud 2.2 OLED + Tulsi Soil"
 # Firmware publishes telemetry every ~6 s and bounded network retries can miss
 # several intervals; keep the device online during brief mobile-network jitter.
 DEVICE_ONLINE_WINDOW = 30
@@ -471,7 +471,11 @@ def create_command():
         if not 1 <= track <= 73:
             return jsonify({"status": "error", "message": "Track must be 1-73"}), 400
 
-    if command == "DISPLAY_MODE" and value.upper() not in {"AUTO", "SENSORS", "HEALTH", "STATUS", "SAVER"}:
+    valid_display_modes = {
+        "AUTO", "OVERVIEW", "SENSORS", "SOIL", "LIGHT",
+        "CLIMATE", "HEALTH", "STATUS", "SAVER"
+    }
+    if command == "DISPLAY_MODE" and value.upper() not in valid_display_modes:
         return jsonify({"status": "error", "message": "Invalid display mode"}), 400
 
     if command == "VOLUME":
