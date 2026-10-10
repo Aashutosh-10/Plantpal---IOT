@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#07110c">
-  <title>PlantPal — Living Plant Intelligence</title>
+  <title>PlantPal — Tulsi Care & Embedded Control</title>
   <style>
     :root {
       --bg:#07110c;
@@ -99,6 +99,15 @@
     .toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border:1px solid var(--border);border-radius:15px;background:rgba(255,255,255,.018)}
     .toggle label{font-size:11px;color:#bac6bf}.switch{width:38px;height:22px;border-radius:99px;background:#24352b;border:1px solid rgba(255,255,255,.1);position:relative;cursor:pointer}.switch i{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#87958c;transition:.2s}.switch.on{background:rgba(42,184,106,.25);border-color:rgba(109,231,155,.3)}.switch.on i{left:19px;background:var(--green)}
     .audioRow{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:13px}.select{width:100%;background:#0a1610;color:var(--text);border:1px solid var(--border);border-radius:13px;padding:11px 12px;outline:none}.miniBtn{border:1px solid rgba(109,231,155,.25);background:rgba(109,231,155,.08);color:var(--green);border-radius:13px;padding:11px 13px}
+    .deviceSettings{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+    .settingCard{padding:14px;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.02);min-width:0}
+    .settingCard label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#d4ded7;margin-bottom:8px}
+    .settingCard .hint{color:var(--muted);font-size:10px;line-height:1.45;margin:8px 0 0}
+    .settingCard .miniBtn{width:100%;margin-top:8px}
+    input[type=range]{width:100%;accent-color:var(--green);margin:8px 0}
+    .soilGuidance{margin-top:10px;padding:12px;border:1px solid rgba(109,231,155,.16);background:rgba(109,231,155,.04);border-radius:14px;font-size:11px;line-height:1.5;color:#c8d5cb}
+    .soilGuidance strong{display:block;color:var(--green);margin-bottom:4px}
+    @media(max-width:620px){.deviceSettings{grid-template-columns:1fr}}
     .activityList{display:grid;gap:7px;max-height:355px;overflow:auto;padding-right:3px}.activity{padding:12px;border:1px solid var(--border);border-radius:15px;background:rgba(255,255,255,.018);transition:.2s}.activityTop{display:flex;justify-content:space-between;gap:10px}.activity b{font-size:11px}.activity time{color:var(--muted);font-size:9px}.activity p{margin:6px 0 0;color:#bcc7c0;font-size:11px;line-height:1.4}
     .lastAction{padding:14px;border:1px solid rgba(109,231,155,.14);background:rgba(109,231,155,.045);border-radius:17px;display:flex;gap:11px;align-items:flex-start}.lastAction .big{font-size:19px}.lastAction strong{display:block;font-size:12px}.lastAction span{display:block;color:#aab8af;font-size:11px;line-height:1.4;margin-top:4px}
     .foot{display:flex;justify-content:space-between;gap:12px;color:#647269;font-size:10px;padding:18px 3px 0}.foot span:last-child{text-align:right}
@@ -157,6 +166,10 @@
           <div class="band"><b>Humidity</b><span>40–80% project band</span></div>
           <div class="band"><b>Watering</b><span>Human-controlled</span></div>
         </div>
+        <div class="soilGuidance" id="soilGuidance"><strong>Tulsi soil guidance · calibrated sensor scale</strong>
+          PlantPal's project target is <b>35–70%</b> (a practical middle band is about 40–60%). This is a relative probe index, not a universal percentage of water in soil. Keep the soil moist but well-drained; water when the upper ~2.5 cm feels dry and the reading is getting low. Avoid waterlogging.
+          <div style="margin-top:6px;color:var(--muted)">Care references: <a href="https://plants.ces.ncsu.edu/plants/ocimum-tenuiflorum/" target="_blank" rel="noopener">NC State Extension · Tulsi</a> · <a href="https://cbseacademic.nic.in/web_material/Curriculum23/publication/HERBAL_HERITAGE7.pdf" target="_blank" rel="noopener">CBSE Academic · Herbal Heritage</a></div>
+        </div>
       </div>
     </section>
 
@@ -174,6 +187,30 @@
         <div class="toggle"><label>OLED display</label><div class="switch" id="oledSwitch" onclick="toggleSetting('OLED')"><i></i></div></div>
         <div class="toggle"><label>Speaker audio</label><div class="switch" id="audioSwitch" onclick="toggleSetting('AUDIO')"><i></i></div></div>
         <div class="toggle"><label>Cloud commands</label><div class="switch on" id="cloudSwitch" onclick="toggleCloudUi()"><i></i></div></div>
+      </div>
+      <div class="deviceSettings">
+        <div class="settingCard">
+          <label for="oledModeSelect">OLED screen mode <span id="oledModeCurrent">AUTO</span></label>
+          <select id="oledModeSelect" class="select">
+            <option value="AUTO">Auto cycle · rotate pages</option>
+            <option value="OVERVIEW">Overview · plant state + health</option>
+            <option value="SENSORS">Sensor check · all readings</option>
+            <option value="SOIL">Soil moisture · value + target</option>
+            <option value="LIGHT">Light · lux + condition</option>
+            <option value="CLIMATE">Climate · temperature + humidity</option>
+            <option value="HEALTH">Plant health · percentage + status</option>
+            <option value="STATUS">Device status · local system</option>
+            <option value="SAVER">Screen saver · OLED off until wake</option>
+          </select>
+          <button class="miniBtn" onclick="applyOLEDMode()">Apply OLED mode</button>
+          <p class="hint">SAVER turns the OLED off; use Wake OLED or touch to return to AUTO.</p>
+        </div>
+        <div class="settingCard">
+          <label for="volumeSlider">Speaker volume <strong id="volumeValue">100% · 30/30</strong></label>
+          <input id="volumeSlider" type="range" min="0" max="100" step="5" value="100" oninput="showVolumeLabel()">
+          <button class="miniBtn" onclick="applyVolume()">Set speaker volume</button>
+          <p class="hint">100% maps to DFPlayer software level 30/30. High volume can distort; use a stable 5 V supply.</p>
+        </div>
       </div>
       <div class="audioRow">
         <select id="audioSelect" class="select"></select>
@@ -220,6 +257,36 @@ async function queueCommand(command,value=''){
   }catch(e){toast(e.message||'Cloud command failed');return null}
 }
 function playSelectedAudio(){const v=$('audioSelect').value;if(v)queueCommand('PLAY_AUDIO',v)}
+function showVolumeLabel(){
+  const pct=Math.max(0,Math.min(100,Number($('volumeSlider').value)||0));
+  $('volumeValue').textContent=`${pct}% · ${Math.round(pct*30/100)}/30`;
+}
+function applyVolume(){
+  const pct=Math.max(0,Math.min(100,Number($('volumeSlider').value)||0));
+  const level=Math.round(pct*30/100);
+  queueCommand('VOLUME',String(level));
+}
+function applyOLEDMode(){
+  const mode=$('oledModeSelect').value;
+  $('oledModeCurrent').textContent=mode;
+  queueCommand('DISPLAY_MODE',mode);
+}
+function setSoilGuidance(percent){
+  const panel=$('soilGuidance');
+  if(!panel)return;
+  let message;
+  if(percent==null || !Number.isFinite(Number(percent))){
+    message='Waiting for a calibrated soil reading.';
+  }else{
+    const n=Number(percent);
+    if(n<20) message=`Very dry (${n}%). Check the upper soil layer; water slowly if the top ~2.5 cm is dry, then let excess drain.`;
+    else if(n<35) message=`Getting dry (${n}%). This is below PlantPal’s target band. Check the top ~2.5 cm and water if it feels dry.`;
+    else if(n<=70) message=`Within PlantPal’s target band (${n}%). Keep the soil moist but well-drained; do not water just to push the number higher.`;
+    else if(n<=85) message=`Wet (${n}%). Allow drainage and let the soil begin to dry before watering again.`;
+    else message=`Very wet (${n}%). Avoid adding water; check that the pot drains freely.`;
+  }
+  panel.innerHTML='<strong>Tulsi soil guidance · calibrated sensor scale</strong>'+esc(message)+'<div style="margin-top:5px;color:var(--muted)">PlantPal band: 35–70%. Sensor percentage is relative to your dry/wet calibration, not a universal soil-water percentage. Care references: <a href="https://plants.ces.ncsu.edu/plants/ocimum-tenuiflorum/" target="_blank" rel="noopener">NC State Extension</a> · <a href="https://cbseacademic.nic.in/web_material/Curriculum23/publication/HERBAL_HERITAGE7.pdf" target="_blank" rel="noopener">CBSE Academic</a>.</div>';
+}
 function toggleSetting(kind){
   const el=$(kind==='OLED'?'oledSwitch':'audioSwitch');
   const target=el.classList.contains('on');
@@ -240,7 +307,15 @@ async function updateLatest(){
     $('soilState').textContent=x.soilState||'Unknown';$('lightState').textContent=x.lightState||'Unknown';$('tempState').textContent=x.temperatureState||'Unknown';$('humidityState').textContent=x.humidityState||'Unknown';
     setBar('soilBar',x.soilPercent,100);setBar('lightBar',Math.min(Number(x.lux)||0,5000),5000);setBar('tempBar',Math.min(Math.max((Number(x.temperature)||0),0),40),40);setBar('humidityBar',x.humidity,100);
     const score=Math.max(0,Math.min(100,Number(x.healthScore)||0));$('healthScore').textContent=score;$('scoreCaption').textContent=`${score} / 100`;$('ring').style.setProperty('--score',score);$('healthText').textContent=x.healthLabel||'Checking sensors';
-    $('plantProfile').textContent=x.plant||'Tulsi';$('timeText').textContent=fmtTime(x.timestamp);$('touch').textContent=x.touch?'YES':'NO';$('volume').textContent=x.volume??'--';$('oled').textContent=x.oledEnabled?'ON':'OFF';$('audio').textContent=x.audio?'READY':'ERROR';$('firmware').textContent=x.firmware||'--';$('deviceId').textContent=x.deviceId||DEVICE;
+    $('plantProfile').textContent=x.plant||'Tulsi';$('timeText').textContent=fmtTime(x.timestamp);$('touch').textContent=x.touch?'YES':'NO';$('volume').textContent=x.volume!=null?`${Math.round(Number(x.volume)/30*100)}% (${x.volume}/30)`:'--';$('oled').textContent=x.oledEnabled?'ON':'OFF';$('audio').textContent=x.audio?'READY':'ERROR';$('firmware').textContent=x.firmware||'--';$('deviceId').textContent=x.deviceId||DEVICE;
+     const mode=String(x.displayMode||'AUTO').toUpperCase();
+     if([...$('oledModeSelect').options].some(o=>o.value===mode))$('oledModeSelect').value=mode;
+     $('oledModeCurrent').textContent=mode;
+     if(document.activeElement!==$('volumeSlider') && x.volume!=null){
+       $('volumeSlider').value=Math.round(Math.max(0,Math.min(30,Number(x.volume)))/30*100);
+       showVolumeLabel();
+     }
+     setSoilGuidance(x.soilPercent);
     $('actionIcon').textContent=iconFor(data.event?.kind||x.lastAction);$('actionTitle').textContent=x.lastActionMessage||x.status||'PlantPal online';$('actionMessage').textContent=data.event?.message||x.lastAudioMessage||x.status||'Monitoring locally.';
     if(x.lastAudioTrack){$('audioTrack').textContent=`Track ${String(x.lastAudioTrack).padStart(4,'0')} · ${fmtTime(x.timestamp)}`;$('audioMessage').textContent=x.lastAudioMessage||''}
     updateSwitch('oledSwitch',x.oledEnabled);updateSwitch('audioSwitch',x.audioEnabled);
@@ -263,7 +338,7 @@ function drawTrend(points){
   if(points.length<2)return;const vals=points.map(p=>Number(p.soilPercent)||0);const min=0,max=100;ctx.beginPath();points.forEach((p,i)=>{const x=12+(w-24)*(i/(points.length-1));const y=h-18-(h-46)*((Number(p.soilPercent)||0)-min)/(max-min);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle='#6de79b';ctx.lineWidth=2.4;ctx.stroke();ctx.lineTo(w-12,h-18);ctx.lineTo(12,h-18);ctx.closePath();ctx.fillStyle='rgba(109,231,155,.07)';ctx.fill();
 }
 document.querySelectorAll('[data-command]').forEach(b=>b.addEventListener('click',()=>queueCommand(b.dataset.command)));
-window.addEventListener('resize',updateTrend);loadTrackList();updateLatest();refreshActivity();updateTrend();setInterval(updateLatest,2500);setInterval(refreshActivity,5000);setInterval(updateTrend,5000);
+window.addEventListener('resize',updateTrend);loadTrackList();showVolumeLabel();updateLatest();refreshActivity();updateTrend();setInterval(updateLatest,2500);setInterval(refreshActivity,5000);setInterval(updateTrend,5000);
 </script>
 </body>
 </html>
