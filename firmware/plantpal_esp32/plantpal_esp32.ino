@@ -1,7 +1,7 @@
 /*
   ============================================================================
   PLANTPAL - TULSI SMART PLANT SYSTEM
-  FINAL COLLEGE SUBMISSION FIRMWARE
+  FINAL COLLEGE EXHIBITION FIRMWARE - RESPONSIVE CLOUD PATCH
   ============================================================================
 
   Platform : ESP32 Dev Module / ESP32-WROOM-32 / ESP32-D0WD-V3
@@ -134,17 +134,36 @@ uint32_t lastCloudCommandPollAt = 0;
 uint32_t lastCloudRetryAt = 0;
 uint32_t lastCloudEventAt = 0;
 uint32_t lastCloudConnectReportAt = 0;
+uint32_t lastCloudRequestAt = 0;
+uint32_t lastCloudAckAttemptAt = 0;
+long lastProcessedCloudCommandId = 0;
+bool pendingCloudAck = false;
+long pendingCloudAckId = 0;
+bool pendingCloudAckSuccess = true;
+String pendingCloudAckResult = "";
+String persistedCloudAckResult = "";
+bool persistedCloudAckSuccess = true;
+bool pendingCloudEvent = false;
+String pendingCloudEventKind = "";
+String pendingCloudEventMessage = "";
+String pendingCloudEventIcon = "leaf";
+int pendingCloudEventTrack = 0;
 bool wifiAttemptActive = false;
 uint32_t wifiAttemptStartedAt = 0;
 bool localAPActive = false;
 
-static const uint32_t CLOUD_TELEMETRY_INTERVAL_MS = 5000UL;
-static const uint32_t CLOUD_COMMAND_POLL_INTERVAL_MS = 1800UL;
-static const uint32_t CLOUD_RETRY_INTERVAL_MS = 10000UL;
-static const uint32_t CLOUD_HTTP_TIMEOUT_MS = 12000UL;
-static const uint32_t CLOUD_CONNECT_TIMEOUT_MS = 8000UL;
+static const uint32_t CLOUD_TELEMETRY_INTERVAL_MS = 6000UL;
+static const uint32_t CLOUD_COMMAND_POLL_INTERVAL_MS = 900UL;
+static const uint32_t CLOUD_RETRY_INTERVAL_MS = 12000UL;
+// Bound synchronous HTTPS stalls so touch/OLED/local HTTP are not frozen for 12 s.
+// Slow/cold cloud requests are retried by the scheduler instead of blocking the device.
+static const uint32_t CLOUD_HTTP_TIMEOUT_MS = 2200UL;
+static const uint32_t CLOUD_CONNECT_TIMEOUT_MS = 1200UL;
+static const uint32_t CLOUD_MIN_REQUEST_GAP_MS = 100UL;
+static const uint32_t CLOUD_ACK_RETRY_MS = 1200UL;
 static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000UL;
 static const uint32_t CLOUD_EVENT_MIN_INTERVAL_MS = 1000UL;
+static const uint32_t BH1750_RETRY_INTERVAL_MS = 5000UL;
 
 // ============================================================================
 // 02. PIN DEFINITIONS
@@ -178,12 +197,12 @@ Preferences prefs;
 // 04. APPLICATION CONSTANTS
 // ============================================================================
 
-static const char* FW_VERSION = "PlantPal Tulsi Final 1.0";
+static const char* FW_VERSION = "PlantPal Tulsi Exhibition 1.1";
 static const char* PLANT_NAME = "Tulsi";
 static const char* PLANT_SPECIES = "Ocimum tenuiflorum";
 
 static const uint32_t SENSOR_INTERVAL_MS = 2500UL;
-static const uint32_t OLED_INTERVAL_MS = 200UL;
+static const uint32_t OLED_INTERVAL_MS = 300UL;
 static const uint32_t AUTO_PAGE_INTERVAL_MS = 4000UL;
 static const uint32_t OLED_SAVER_TIMEOUT_MS = 90000UL;
 static const uint32_t MESSAGE_SCREEN_MS = 5000UL;
@@ -191,8 +210,8 @@ static const uint32_t CONDITION_PERSIST_READS = 3UL;
 static const uint32_t CONDITION_AUDIO_COOLDOWN_MS = 300000UL;
 static const uint32_t WATER_EVENT_COOLDOWN_MS = 120000UL;
 static const uint32_t AUDIO_WATCHDOG_MS = 15000UL;
-static const uint32_t TOUCH_DEBOUNCE_MS = 70UL;
-static const uint32_t TOUCH_DOUBLE_WINDOW_MS = 750UL;
+static const uint32_t TOUCH_DEBOUNCE_MS = 50UL;
+static const uint32_t TOUCH_DOUBLE_WINDOW_MS = 800UL;
 static const uint32_t TOUCH_LONG_PRESS_MS = 2200UL;
 
 // ============================================================================
@@ -367,6 +386,7 @@ uint32_t lastWaterEventAt = 0;
 // ============================================================================
 
 uint32_t lastSensorRead = 0;
+uint32_t lastBh1750RetryAt = 0;
 uint32_t lastPeriodicSummaryAt = 0;
 uint32_t lastWebTouchAt = 0;
 
@@ -464,6 +484,8 @@ void updatePlantModel();
 void renderOLED();
 void showMessage(const String& title, const String& text, uint32_t durationMs = 5000UL);
 void serviceAudio();
+bool initializeBH1750();
+
 
 // ============================================================================
 // 15. BASIC HELPERS
@@ -545,6 +567,10 @@ int clampTrack(int track) {
 
 void loadSettings() {
   prefs.begin("plantpal", false);
+
+  lastProcessedCloudCommandId = (long)prefs.getULong("lastCmd", 0);
+  persistedCloudAckSuccess = prefs.getBool("lastCmdOK", true);
+  persistedCloudAckResult = prefs.getString("lastCmdText", "");
 
   oledEnabled = prefs.getBool("oled", true);
   audioEnabled = prefs.getBool("audio", true);
@@ -652,10 +678,21 @@ void updateSoil() {
 // ============================================================================
 
 void updateLight() {
+  const uint32_t now = millis();
+
+  // Retry the module at a controlled interval instead of leaving it offline forever.
   if (!bh1750Ready) {
     sensors.lightValid = false;
     sensors.lightBadReads = min((uint8_t)10, (uint8_t)(sensors.lightBadReads + 1));
-    return;
+    if (now - lastBh1750RetryAt >= BH1750_RETRY_INTERVAL_MS) {
+      lastBh1750RetryAt = now;
+      bh1750Ready = initializeBH1750();
+      if (bh1750Ready) {
+        sensors.lightBadReads = 0;
+        Serial.println("[BH1750] Recovered after retry.");
+      }
+    }
+    if (!bh1750Ready) return;
   }
 
   float value = lightMeter.readLightLevel();
@@ -663,6 +700,11 @@ void updateLight() {
   if (!finiteFloat(value) || value < 0.0f || value > 100000.0f) {
     sensors.lightValid = false;
     sensors.lightBadReads = min((uint8_t)10, (uint8_t)(sensors.lightBadReads + 1));
+    if (sensors.lightBadReads >= 3) {
+      bh1750Ready = false;
+      lastBh1750RetryAt = now;
+      Serial.println("[BH1750] Repeated invalid reads; scheduling reinitialization.");
+    }
     return;
   }
 
@@ -774,33 +816,36 @@ void updateSensors() {
 // ============================================================================
 
 PlantCondition evaluateCondition() {
-  if (!sensors.soilValid ||
-      !sensors.lightValid ||
-      !sensors.temperatureValid ||
-      !sensors.humidityValid) {
-    return CONDITION_SENSOR_ERROR;
+  // A single flaky sensor should not hide a valid, actionable root-zone reading.
+  // Evaluate valid sensors in priority order first, then report a sensor fault if
+  // the available measurements show no more important condition.
+  if (sensors.soilValid) {
+    if (sensors.soilPercent < SOIL_VERY_DRY_PCT) return CONDITION_SOIL_VERY_DRY;
+    if (sensors.soilPercent < SOIL_DRY_PCT) return CONDITION_SOIL_DRY;
+    if (sensors.soilPercent > SOIL_WET_PCT) return CONDITION_SOIL_WET;
   }
 
-  // Watering/soil has highest priority because it is the most direct
-  // root-zone condition measured by PlantPal.
-  if (sensors.soilPercent < SOIL_VERY_DRY_PCT) return CONDITION_SOIL_VERY_DRY;
-  if (sensors.soilPercent < SOIL_DRY_PCT) return CONDITION_SOIL_DRY;
-  if (sensors.soilPercent > SOIL_WET_PCT) return CONDITION_SOIL_WET;
+  // Light is especially important for Tulsi, but invalid lux must not block soil advice.
+  if (sensors.lightValid) {
+    if (sensors.lux < LIGHT_DARK_LUX) return CONDITION_LIGHT_DARK;
+    if (sensors.lux < LIGHT_LOW_LUX) return CONDITION_LIGHT_LOW;
+    if (sensors.lux > LIGHT_VERY_BRIGHT_LUX) return CONDITION_LIGHT_BRIGHT;
+  }
 
-  // Light is especially important for Tulsi.
-  if (sensors.lux < LIGHT_DARK_LUX) return CONDITION_LIGHT_DARK;
-  if (sensors.lux < LIGHT_LOW_LUX) return CONDITION_LIGHT_LOW;
-  if (sensors.lux > LIGHT_VERY_BRIGHT_LUX) return CONDITION_LIGHT_BRIGHT;
+  if (sensors.temperatureValid) {
+    if (sensors.temperature < TEMP_COLD_C) return CONDITION_TEMP_COLD;
+    if (sensors.temperature > TEMP_WARM_C) return CONDITION_TEMP_HOT;
+    if (sensors.temperature > TEMP_GOOD_MAX_C) return CONDITION_TEMP_WARM;
+  }
 
-  // Temperature
-  if (sensors.temperature < TEMP_COLD_C) return CONDITION_TEMP_COLD;
-  if (sensors.temperature > TEMP_WARM_C) return CONDITION_TEMP_HOT;
-  if (sensors.temperature > TEMP_GOOD_MAX_C) return CONDITION_TEMP_WARM;
+  if (sensors.humidityValid) {
+    if (sensors.humidity < HUMIDITY_DRY_PCT) return CONDITION_HUMIDITY_DRY;
+    if (sensors.humidity > HUMIDITY_HIGH_PCT) return CONDITION_HUMIDITY_HIGH;
+  }
 
-  // Humidity
-  if (sensors.humidity < HUMIDITY_DRY_PCT) return CONDITION_HUMIDITY_DRY;
-  if (sensors.humidity > HUMIDITY_HIGH_PCT) return CONDITION_HUMIDITY_HIGH;
-
+  const bool allSensorsValid = sensors.soilValid && sensors.lightValid &&
+                               sensors.temperatureValid && sensors.humidityValid;
+  if (!allSensorsValid) return CONDITION_SENSOR_ERROR;
   return CONDITION_HEALTHY;
 }
 
@@ -1413,27 +1458,56 @@ void oledWrapped(const String& text, int x, int y, int widthChars, uint8_t maxLi
 // 33. OLED PAGES
 // ============================================================================
 
+const char* oledConditionShort(PlantCondition condition) {
+  switch (condition) {
+    case CONDITION_SENSOR_ERROR: return "CHECK SENSOR";
+    case CONDITION_SOIL_VERY_DRY: return "VERY DRY SOIL";
+    case CONDITION_SOIL_DRY: return "DRY SOIL";
+    case CONDITION_SOIL_GOOD: return "GOOD SOIL";
+    case CONDITION_SOIL_WET: return "WET SOIL";
+    case CONDITION_LIGHT_DARK: return "DARK";
+    case CONDITION_LIGHT_LOW: return "LOW LIGHT";
+    case CONDITION_LIGHT_GOOD: return "GOOD LIGHT";
+    case CONDITION_LIGHT_BRIGHT: return "BRIGHT LIGHT";
+    case CONDITION_TEMP_COLD: return "COOL TEMP";
+    case CONDITION_TEMP_GOOD: return "GOOD TEMP";
+    case CONDITION_TEMP_WARM: return "WARM TEMP";
+    case CONDITION_TEMP_HOT: return "HOT TEMP";
+    case CONDITION_HUMIDITY_DRY: return "DRY AIR";
+    case CONDITION_HUMIDITY_GOOD: return "GOOD HUMID";
+    case CONDITION_HUMIDITY_HIGH: return "HIGH HUMID";
+    case CONDITION_HEALTHY: return "HEALTHY";
+  }
+  return "CHECK SENSOR";
+}
+
 void renderSmartPage() {
   oledHeader("PLANTPAL", "TULSI");
 
+  const bool allSensorsValid = sensors.soilValid && sensors.lightValid &&
+                               sensors.temperatureValid && sensors.humidityValid;
   display.setTextSize(1);
   display.setCursor(0, 14);
   display.print("STATUS:");
 
   display.setCursor(43, 14);
-  display.print(conditionName(currentCondition));
+  display.print(allSensorsValid ? oledConditionShort(currentCondition) : "CHECK SENSORS");
 
   display.setCursor(0, 27);
   display.print("HEALTH");
 
   display.setTextSize(2);
   display.setCursor(68, 23);
-  display.print(healthScore);
-  display.print("%");
+  if (allSensorsValid) {
+    display.print(healthScore);
+    display.print("%");
+  } else {
+    display.print("--");
+  }
 
   display.setTextSize(1);
   display.setCursor(0, 40);
-  display.print(healthLabel);
+  display.print(allSensorsValid ? healthLabel : "SENSOR CHECK NEEDED");
 
   display.setCursor(0, 52);
 
@@ -1493,20 +1567,26 @@ void renderSensorsPage() {
 
 void renderHealthPage() {
   oledHeader("PLANTPAL", "HEALTH");
+  const bool allSensorsValid = sensors.soilValid && sensors.lightValid &&
+                               sensors.temperatureValid && sensors.humidityValid;
 
   display.setTextSize(2);
   display.setCursor(35, 15);
-  display.print(healthScore);
-  display.print("%");
+  if (allSensorsValid) {
+    display.print(healthScore);
+    display.print("%");
+  } else {
+    display.print("--");
+  }
 
   display.setTextSize(1);
   display.setCursor(35, 35);
-  display.print(healthLabel);
+  display.print(allSensorsValid ? healthLabel : "CHECK SENSORS");
 
   display.drawRect(1, 49, 126, 10, SSD1306_WHITE);
-  int bar = map(constrain(healthScore, 0, 100), 0, 100, 0, 122);
-  if (bar > 1) {
-    display.fillRect(3, 51, bar, 6, SSD1306_WHITE);
+  if (allSensorsValid) {
+    int bar = map(constrain(healthScore, 0, 100), 0, 100, 0, 122);
+    if (bar > 1) display.fillRect(3, 51, bar, 6, SSD1306_WHITE);
   }
 }
 
@@ -1548,8 +1628,12 @@ void renderAutoPage() {
       oledHeader("PLANTPAL", "SOIL");
       display.setTextSize(2);
       display.setCursor(0, 16);
-      display.print(sensors.soilValid ? sensors.soilPercent : 0);
-      display.print("%");
+      if (sensors.soilValid) {
+        display.print(sensors.soilPercent);
+        display.print("%");
+      } else {
+        display.print("ERR");
+      }
       display.setTextSize(1);
       display.setCursor(0, 40);
       display.print("State: ");
@@ -1838,8 +1922,11 @@ Local ESP32 IoT · http://192.168.4.1
 
 <script>
 let currentData={};
+let dataFetchInFlight=false;
 function getData(){
-  fetch('/api/data').then(r=>r.json()).then(d=>{
+  if(dataFetchInFlight) return;
+  dataFetchInFlight=true;
+  fetch('/api/data?ts='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(d=>{
     currentData=d;
     document.getElementById('status').innerText=d.status;
     document.getElementById('healthLabel').innerText='Health: '+d.healthScore+'% · '+d.healthLabel;
@@ -1861,15 +1948,15 @@ function getData(){
     document.getElementById('wetCal').innerText=d.soilWet;
     document.getElementById('modeSelect').value=d.displayMode;
     document.getElementById('autoAudioBtn').innerText=d.autoAudio?'Auto Audio: ON':'Auto Audio: OFF';
-  }).catch(()=>{});
+  }).catch(()=>{}).finally(()=>{dataFetchInFlight=false;});
 }
-function act(c){ fetch('/api/action?cmd='+encodeURIComponent(c)).then(()=>getData()); }
-function play(n){ fetch('/api/play?id='+n); }
-function setMode(v){ fetch('/api/action?cmd=mode&value='+encodeURIComponent(v)); }
-function setVolume(v){ fetch('/api/action?cmd=volume&value='+v); }
-function toggleAutoAudio(){ fetch('/api/action?cmd=auto_audio&value='+(currentData.autoAudio?'off':'on')); }
+function act(c){ fetch('/api/action?cmd='+encodeURIComponent(c),{cache:'no-store'}).then(()=>getData()); }
+function play(n){ fetch('/api/play?id='+n,{cache:'no-store'}).then(()=>getData()); }
+function setMode(v){ fetch('/api/action?cmd=mode&value='+encodeURIComponent(v),{cache:'no-store'}).then(()=>getData()); }
+function setVolume(v){ fetch('/api/action?cmd=volume&value='+v,{cache:'no-store'}).then(()=>getData()); }
+function toggleAutoAudio(){ fetch('/api/action?cmd=auto_audio&value='+(currentData.autoAudio?'off':'on'),{cache:'no-store'}).then(()=>getData()); }
 getData();
-setInterval(getData,2000);
+setInterval(getData,1800);
 </script>
 </body>
 </html>
@@ -2480,6 +2567,7 @@ void startLocalAPFallback() {
   if (localAPActive) return;
 
   WiFi.mode(WIFI_AP_STA);
+  WiFi.setSleep(false);  // Prioritize responsiveness over a small power saving.
   bool ok = WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 4);
   localAPActive = ok;
 
@@ -2545,6 +2633,7 @@ bool cloudRequest(const String& method, const String& path, const String& body,
   }
 
   http.end();
+  lastCloudRequestAt = millis();
   return httpCode >= 200 && httpCode < 300;
 }
 
@@ -2569,6 +2658,7 @@ void cloudConnect() {
     }
 
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);  // Reduce modem-sleep latency for cloud command round trips.
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
 
@@ -2644,29 +2734,33 @@ bool sendCloudTelemetry() {
 
 bool sendCloudEvent(const String& kind, int track,
                     const String& message, const String& icon) {
+  // Event reporting must never block touch/audio/command execution. Keep the
+  // latest useful event in RAM and send it when command ACK/polling has priority.
   if (!cloudEnabled || WiFi.status() != WL_CONNECTED) return false;
+  const uint32_t now = millis();
+  if (now - lastCloudEventAt < CLOUD_EVENT_MIN_INTERVAL_MS) return false;
 
-  if (millis() - lastCloudEventAt < CLOUD_EVENT_MIN_INTERVAL_MS) {
-    return false;
-  }
+  pendingCloudEventKind = kind;
+  pendingCloudEventTrack = track;
+  pendingCloudEventMessage = message;
+  pendingCloudEventIcon = icon;
+  pendingCloudEvent = true;
+  lastCloudEventAt = now;
+  return true;
+}
 
+bool flushCloudEvent() {
+  if (!pendingCloudEvent || !cloudEnabled || WiFi.status() != WL_CONNECTED) return false;
   int code = -1;
   String response;
-
   bool ok = cloudRequest(
-    "POST",
-    "/api/events",
-    buildCloudEventJson(kind, track, message, icon),
-    code,
-    response
+    "POST", "/api/events",
+    buildCloudEventJson(pendingCloudEventKind, pendingCloudEventTrack,
+                        pendingCloudEventMessage, pendingCloudEventIcon),
+    code, response
   );
-
-  if (ok) {
-    lastCloudEventAt = millis();
-    return true;
-  }
-
-  return false;
+  if (ok) pendingCloudEvent = false;
+  return ok;
 }
 
 String jsonFieldString(const String& json, const String& key) {
@@ -3095,11 +3189,43 @@ bool pollCloudCommand() {
   Serial.println();
 
   String result;
+  if (commandId <= 0) return false;
+
+  // The API leaves a command pending until ACK. If ACK delivery fails, the API
+  // can return the same command again. Do not execute audio/calibration twice.
+  if (commandId <= lastProcessedCloudCommandId) {
+    if (commandId == lastProcessedCloudCommandId) {
+      result = persistedCloudAckResult.length()
+        ? persistedCloudAckResult
+        : "Command was already processed; retrying acknowledgement.";
+      pendingCloudAckSuccess = persistedCloudAckSuccess;
+    } else {
+      result = "Older command skipped to prevent duplicate execution.";
+      pendingCloudAckSuccess = true;
+    }
+    pendingCloudAckId = commandId;
+    pendingCloudAckResult = result;
+    pendingCloudAck = true;
+    return true;
+  }
+
   bool success = executeCloudCommand(command, value, result);
-
   lastActionAt = millis();
-  acknowledgeCloudCommand(commandId, success, result);
 
+  lastProcessedCloudCommandId = commandId;
+  persistedCloudAckSuccess = success;
+  persistedCloudAckResult = result;
+  prefs.putULong("lastCmd", (uint32_t)commandId);
+  prefs.putBool("lastCmdOK", success);
+  prefs.putString("lastCmdText", result.substring(0, 120));
+
+  pendingCloudAckId = commandId;
+  pendingCloudAckSuccess = success;
+  pendingCloudAckResult = result;
+  pendingCloudAck = true;
+
+  // ACK is intentionally deferred to the next scheduler pass. The local UI,
+  // sensor and touch loop resumes immediately after executing the command.
   return success;
 }
 
@@ -3110,29 +3236,54 @@ void serviceCloud() {
 
   if (WiFi.status() != WL_CONNECTED) {
     cloudConnected = false;
-
     if (!wifiAttemptActive && now - lastCloudRetryAt >= CLOUD_RETRY_INTERVAL_MS) {
       lastCloudRetryAt = now;
       cloudConnect();
     } else if (wifiAttemptActive) {
       cloudConnect();
     }
-
     return;
   }
 
   cloudConnected = true;
   wifiAttemptActive = false;
 
-  if (now - lastCloudTelemetryAt >= CLOUD_TELEMETRY_INTERVAL_MS) {
-    lastCloudTelemetryAt = now;
-    sendCloudTelemetry();
+  // Leave small gaps between synchronous requests. This prevents a stream of
+  // back-to-back HTTP calls from starving local interaction when the server is slow.
+  if (lastCloudRequestAt != 0 && now - lastCloudRequestAt < CLOUD_MIN_REQUEST_GAP_MS) return;
+
+  // Priority 1: acknowledge a command already executed locally.
+  if (pendingCloudAck) {
+    if (now - lastCloudAckAttemptAt < CLOUD_ACK_RETRY_MS && lastCloudAckAttemptAt != 0) return;
+    lastCloudAckAttemptAt = now;
+    bool acked = acknowledgeCloudCommand(pendingCloudAckId,
+                                         pendingCloudAckSuccess,
+                                         pendingCloudAckResult);
+    if (acked) {
+      pendingCloudAck = false;
+      pendingCloudAckId = 0;
+      pendingCloudAckResult = "";
+    }
+    return;
   }
 
+  // Priority 2: poll commands before telemetry so web actions are not queued
+  // behind a due telemetry POST.
   if (now - lastCloudCommandPollAt >= CLOUD_COMMAND_POLL_INTERVAL_MS) {
     lastCloudCommandPollAt = now;
     pollCloudCommand();
+    return;
   }
+
+  // Then update cloud readings.
+  if (now - lastCloudTelemetryAt >= CLOUD_TELEMETRY_INTERVAL_MS) {
+    lastCloudTelemetryAt = now;
+    sendCloudTelemetry();
+    return;
+  }
+
+  // Low-priority event history is flushed only when no command/telemetry is due.
+  if (pendingCloudEvent) flushCloudEvent();
 }
 
 // 40. SETUP
